@@ -1,6 +1,6 @@
 {
   "name": "surp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "nvim for supabase",
   "type": "module",
@@ -19,6 +19,9 @@
   },
   "dependencies": {
     "@opentui/core": "^0.4.2",
+    "@opentui/core-darwin-x64": "^0.4.3",
+    "@opentui/core-linux-x64": "^0.4.3",
+    "@opentui/core-win32-x64": "^0.4.3",
     "@opentui/solid": "^0.4.2",
     "@supabase/supabase-js": "^2.110.2",
     "solid-js": "^1.9.7"
