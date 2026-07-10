@@ -28,8 +28,16 @@ if (!existsSync(binPath)) {
   process.exit(1)
 }
 
+// Add node_modules/@opentui to module path so binary can find native dylib
+const nmPath = join(__dirname, "node_modules")
+const env = { ...process.env }
+if (existsSync(nmPath)) {
+  const existing = env.NODE_PATH || ""
+  env.NODE_PATH = existing ? `${nmPath}:${existing}` : nmPath
+}
+
 try {
-  execFileSync(binPath, process.argv.slice(2), { stdio: "inherit" })
+  execFileSync(binPath, process.argv.slice(2), { stdio: "inherit", env })
 } catch (e) {
   process.exit(typeof e?.status === "number" ? e.status : 1)
 }

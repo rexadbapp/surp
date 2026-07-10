@@ -2,11 +2,12 @@
 // postinstall: download the precompiled surp binary for this platform from GitHub Releases.
 // No source code is shipped in this npm package.
 import { createWriteStream } from "node:fs"
-import { mkdir, chmod, access, readFile } from "node:fs/promises"
+import { mkdir, chmod, access, readFile, rm } from "node:fs/promises"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { get as httpsGet } from "node:https"
 import { get as httpGet } from "node:http"
+import { execSync } from "node:child_process"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO = "rexadbapp/surp"
@@ -22,6 +23,12 @@ function platformKey() {
   throw new Error(`surp: unsupported platform ${p}/${a}`)
 }
 
+// Map platform key to opentui native package name used in GitHub Release tarball
+function nativePkgName(key) {
+  if (key === "windows-x64") return "core-win32-x64"
+  return `core-${key}`
+}
+
 async function main() {
   const pkg = JSON.parse(await readFile(join(__dirname, "..", "package.json"), "utf8"))
   const version = pkg.version
@@ -31,18 +38,47 @@ async function main() {
   const url = `https://github.com/${REPO}/releases/download/v${version}/${assetName}`
   const outPath = join(__dirname, assetName)
 
-  // Skip if already downloaded
+  // Skip binary + native pkg if already present
+  const nativePkg = nativePkgName(key)
+  const nativeDir = join(__dirname, "node_modules", "@opentui", nativePkg)
+  const nativeReady = await access(nativeDir).then(() => true).catch(() => false)
+
+  let binaryReady = false
   try {
     await access(outPath)
-    console.log(`surp: binary already present (${assetName})`)
-    return
+    binaryReady = true
   } catch {}
 
-  await mkdir(dirname(outPath), { recursive: true })
-  console.log(`surp: downloading ${assetName} (v${version})...`)
+  if (binaryReady && nativeReady) {
+    console.log(`surp: already installed (${assetName} + ${nativePkg})`)
+    return
+  }
 
-  await download(url, outPath)
-  if (process.platform !== "win32") await chmod(outPath, 0o755)
+  await mkdir(dirname(outPath), { recursive: true })
+
+  if (!binaryReady) {
+    console.log(`surp: downloading ${assetName} (v${version})...`)
+    await download(url, outPath)
+    if (process.platform !== "win32") await chmod(outPath, 0o755)
+  }
+
+  if (!nativeReady) {
+    const tarballName = `${nativePkg}.tar.gz`
+    const tarballUrl = `https://github.com/${REPO}/releases/download/v${version}/${tarballName}`
+    const tarballPath = join(__dirname, tarballName)
+    try {
+      console.log(`surp: downloading ${tarballName} (native addon)...`)
+      await download(tarballUrl, tarballPath)
+      execSync(`tar -xzf ${JSON.stringify(tarballPath)} -C ${JSON.stringify(__dirname)}`)
+      await rm(tarballPath)
+      console.log(`surp: native addon extracted ✓`)
+    } catch (e) {
+      // Backwards compat: older releases may not have tarball
+      console.error(`surp: native addon download failed (${e.message}), binary may not work`)
+      console.error("surp: manually download from https://github.com/rexadbapp/surp/releases")
+    }
+  }
+
   console.log("surp: installed ✓")
 }
 

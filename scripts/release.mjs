@@ -136,6 +136,23 @@ async function main() {
     assets.push(outPath)
     await writeFile(outPath + ".sha256", hash + "\n")
     console.log(`[release]   sha256: ${hash}`)
+
+    // Tar.gz the platform-specific native package alongside the binary
+    const pkgName = `core-${p.name === "windows-x64" ? "win32-x64" : p.name}`
+    const pkgDir = join(releaseDir, "node_modules", "@opentui", pkgName)
+    if (existsSync(pkgDir)) {
+      const tarball = join(releaseDir, `${pkgName}.tar.gz`)
+      // Preserve node_modules/@opentui/core-* path inside tar
+      const tarProc = Bun.spawnSync([
+        "tar", "-czf", tarball,
+        "-C", releaseDir,
+        `node_modules/@opentui/${pkgName}`,
+      ])
+      if (tarProc.exitCode === 0) {
+        assets.push(tarball)
+        console.log(`[release]   packaged ${tarball}`)
+      }
+    }
   }
 
   // latest.json for the in-app self-updater

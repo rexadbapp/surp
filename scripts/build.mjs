@@ -14,13 +14,38 @@
  *   node scripts/build.mjs --skip-obfuscate  # skip obfuscation (dev)
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "fs"
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import { createHash } from "crypto"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, "..")
+
+function getPlatformPkgName(target) {
+  if (!target) target = ""
+  const t = target.toLowerCase()
+  const isMusl = t.includes("musl")
+  // Darwin
+  if (t.includes("darwin-arm64") || t.includes("darwin") && t.includes("aarch64")) return "core-darwin-arm64"
+  if (t.includes("darwin-x64") || t.includes("darwin") && t.includes("x64")) return "core-darwin-x64"
+  // Linux (check musl before glibc)
+  if (t.includes("linux-x64")) return isMusl ? "core-linux-x64-musl" : "core-linux-x64"
+  if (t.includes("linux-arm64")) return isMusl ? "core-linux-arm64-musl" : "core-linux-arm64"
+  // Windows
+  if (t.includes("win32-x64") || t.includes("windows-x64")) return "core-win32-x64"
+  if (t.includes("win32-arm64") || t.includes("windows-arm64")) return "core-win32-arm64"
+  // If no target specified, detect from current platform
+  const p = process.platform
+  const a = process.arch
+  if (p === "darwin" && a === "arm64") return "core-darwin-arm64"
+  if (p === "darwin" && a === "x64") return "core-darwin-x64"
+  if (p === "linux" && a === "x64") return process.env.OPENTUI_LIBC === "musl" ? "core-linux-x64-musl" : "core-linux-x64"
+  if (p === "linux" && a === "arm64") return process.env.OPENTUI_LIBC === "musl" ? "core-linux-arm64-musl" : "core-linux-arm64"
+  if (p === "win32" && a === "x64") return "core-win32-x64"
+  if (p === "win32" && a === "arm64") return "core-win32-arm64"
+  return null
+}
 
 // Parse args
 const args = process.argv.slice(2)
@@ -137,12 +162,17 @@ async function main() {
     ? (OUTFILE.includes("/") || OUTFILE.includes("\\") ? OUTFILE : join(OUT_DIR, OUTFILE))
     : join(OUT_DIR, outName)
 
+  // Map bun target to opentui platform package name
+  const platformPkg = getPlatformPkgName(TARGET)
+  const externalFlag = platformPkg ? `--external=@opentui/${platformPkg}` : ""
+
   console.log(`[build] compiling to binary...`)
   const proc = Bun.spawnSync([
     "bun",
     "build",
     "--compile",
     ...(targetFlag ? [targetFlag] : []),
+    ...(externalFlag ? [externalFlag] : []),
     mainJs,
     "--outfile",
     outPath,
@@ -157,6 +187,22 @@ async function main() {
   }
 
   console.log(`[build] binary written: ${outPath}`)
+
+  // ── 4. Copy platform package alongside binary ──
+  if (platformPkg) {
+    const srcDir = join(ROOT, "node_modules", "@opentui", platformPkg)
+    const pkgDir = join("node_modules", "@opentui", platformPkg)
+    const dstDir = join(dirname(outPath), pkgDir)
+    if (existsSync(srcDir)) {
+      Bun.spawnSync(["rm", "-rf", dstDir], { cwd: ROOT, stdio: ["inherit", "inherit", "inherit"] })
+      mkdirSync(dirname(dstDir), { recursive: true })
+      Bun.spawnSync(["cp", "-RL", srcDir, dstDir], { cwd: ROOT, stdio: ["inherit", "inherit", "inherit"] })
+      console.log(`[build] platform pkg copied to ${dstDir}`)
+    } else {
+      console.error(`[build] WARNING: platform pkg not found at ${srcDir}`)
+    }
+  }
+
   console.log("[build] done")
 }
 
