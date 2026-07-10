@@ -1,0 +1,39 @@
+{
+  "name": "surp",
+  "version": "0.1.0",
+  "description": "nvim-style Supabase client — install via npm/npx, binary fetched from GitHub Releases",
+  "type": "module",
+  "bin": {
+    "surp": "./bin/surp.js"
+  },
+  "scripts": {
+    "postinstall": "node ./bin/download.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rexadbapp/surp.git"
+  },
+  "homepage": "https://github.com/rexadbapp/surp",
+  "keywords": [
+    "supabase",
+    "cli",
+    "tui",
+    "database"
+  ],
+  "license": "MIT"
+}

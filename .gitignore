@@ -1,0 +1,13 @@
+# Build artifacts
+dist/
+node_modules/
+*.exe
+bun.lock
+
+# Secrets / logs
+.env
+*.log
+Supabase Unified Logs.json
+
+# Source code is NEVER committed to this public release repo
+src/

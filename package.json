@@ -1,0 +1,31 @@
+{
+  "name": "surp",
+  "version": "0.1.0",
+  "description": "nvim for supabase",
+  "type": "module",
+  "bin": {
+    "surp": "./src/boot.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/boot.ts",
+    "build": "bun run scripts/build.mjs",
+    "build:fast": "bun run scripts/build.mjs --skip-obfuscate",
+    "build:mac-arm": "bun run scripts/build.mjs --target=bun-darwin-arm64",
+    "build:mac-x64": "bun run scripts/build.mjs --target=bun-darwin-x64",
+    "build:linux-x64": "bun run scripts/build.mjs --target=bun-linux-x64",
+    "build:windows": "bun run scripts/build.mjs --target=bun-windows-x64",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.4.2",
+    "@opentui/solid": "^0.4.2",
+    "@supabase/supabase-js": "^2.110.2",
+    "solid-js": "^1.9.7"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "^1.0.7",
+    "@types/bun": "^1.2.0",
+    "javascript-obfuscator": "^5.4.6",
+    "typescript": "^5.7.0"
+  }
+}
