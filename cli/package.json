@@ -1,5 +1,5 @@
 {
-  "name": "surp",
+  "name": "@rexadbapp/surp",
   "version": "0.1.0",
   "description": "nvim-style Supabase client — install via npm/npx, binary fetched from GitHub Releases",
   "type": "module",
