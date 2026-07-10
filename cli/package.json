@@ -1,10 +1,10 @@
 {
   "name": "@rexadbapp/surp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "nvim-style Supabase client — install via npm/npx, binary fetched from GitHub Releases",
   "type": "module",
   "bin": {
-    "surp": "./bin/surp.js"
+    "surp": "bin/surp.js"
   },
   "scripts": {
     "postinstall": "node ./bin/download.js"
@@ -35,5 +35,8 @@
     "tui",
     "database"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }

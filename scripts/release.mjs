@@ -107,7 +107,7 @@ async function main() {
   } catch {}
   if (exists) {
     if (await confirm(`Release ${tag} already exists. Delete & recreate?`)) {
-      execSync(`gh release delete ${tag} -y --repo ${REPO}`, { stdio: "inherit" })
+      execSync(`gh release delete ${tag} -y --repo ${REPO}`, { stdio: ["ignore", "inherit", "inherit"] })
     } else {
       console.log("[release] aborted")
       process.exit(0)
@@ -126,7 +126,7 @@ async function main() {
     console.log(`[release] building ${p.name} (${p.target})...`)
     const proc = Bun.spawnSync(
       ["bun", "run", "scripts/build.mjs", `--target=${p.target}`, `--outfile=${outPath}`],
-      { cwd: ROOT, stdio: "inherit" },
+      { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"] },
     )
     if (proc.exitCode !== 0) {
       console.error(`[release] build failed for ${p.name}`)
@@ -168,7 +168,7 @@ async function main() {
   console.log(`[release] creating GitHub release ${tag}...`)
   execSync(
     `gh release create ${tag} --repo ${REPO} --title "surp ${releaseVersion}" --notes-file ${JSON.stringify(notesFile)} ${assets.map((a) => JSON.stringify(a)).join(" ")}`,
-    { stdio: "inherit" },
+    { stdio: ["ignore", "inherit", "inherit"] },
   )
   console.log(`[release] ✅ published ${tag}`)
 
