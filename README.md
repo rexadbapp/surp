@@ -1,8 +1,6 @@
 # surp
 
-`nvim`-style terminal client for Supabase — manage projects, tables, SQL, edge functions, storage, auth users, and more from your terminal. Free, no account required.
-
-> This repository is the **release host** for surp. Precompiled, obfuscated binaries are published to [GitHub Releases](https://github.com/rexadbapp/surp/releases). Source code is not published here.
+`nvim`-style terminal client for Supabase — manage projects, tables, SQL, edge functions, storage, auth users, and more from your terminal. Free, open source, no account required.
 
 ## Install
 
@@ -42,6 +40,22 @@ Supported platforms: macOS (arm64 / x64), Linux (x64), Windows (x64).
 | `:check-update`    | Show whether a newer version is available   |
 | `:projects`        | Browse your Supabase projects               |
 
+## Building from source
+
+Requires [Bun](https://bun.sh) v1.2+.
+
+```bash
+git clone https://github.com/rexadbapp/surp.git
+cd surp
+bun install
+bun run dev        # run from source
+bun run build      # build a binary for your platform (dist/)
+```
+
 ## Releasing
 
 Maintainers: `bun run scripts/release.mjs` builds all platforms, uploads to GitHub Releases via `gh`, and offers to publish the npm package. The script prompts for the version and will offer to bump `package.json` + `cli/package.json` if you forgot.
+
+## License
+
+[MIT](LICENSE)
