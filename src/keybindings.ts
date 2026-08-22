@@ -81,8 +81,8 @@ export type Action =
   | "create"
 
 /** Build action->binding sequences map from config */
-export function buildActionMap(cfg: KeybindingsConfig): Map<Action, string[]> {
-  const map = new Map<Action, string[]>()
+export function buildActionMap(cfg: KeybindingsConfig): Map<Action, string[][]> {
+  const map: Map<Action, string[][]> = new Map()
   const entries: [Action, string | undefined][] = [
     ["move_up", cfg.move_up],
     ["move_down", cfg.move_down],
@@ -116,7 +116,23 @@ export function buildActionMap(cfg: KeybindingsConfig): Map<Action, string[]> {
     ["create", cfg.create],
   ]
   for (const [action, binding] of entries) {
-    if (binding) map.set(action, parseBinding(binding))
+    if (binding) map.set(action, [parseBinding(binding)])
+  }
+  // Arrow keys always work as aliases for the movement actions, on top of
+  // whatever vim-style bindings the user has configured.
+  const ARROW_ALIASES: [Action, string][] = [
+    ["move_up", "up"],
+    ["move_down", "down"],
+    ["move_left", "left"],
+    ["move_right", "right"],
+  ]
+  for (const [action, token] of ARROW_ALIASES) {
+    const existing = map.get(action)
+    if (existing) {
+      if (!existing.some((seq) => seq[0] === token)) existing.push([token])
+    } else {
+      map.set(action, [[token]])
+    }
   }
   return map
 }
@@ -126,14 +142,16 @@ export function buildActionMap(cfg: KeybindingsConfig): Map<Action, string[]> {
  *  Callers must wait when hasPartial is true — even if there's already a fullAction. */
 export function matchSequence(
   sequence: string[],
-  actionMap: Map<Action, string[]>,
+  actionMap: Map<Action, string[][]>,
 ): { fullAction: Action | null; hasPartial: boolean } {
   let fullAction: Action | null = null
   let hasPartial = false
-  for (const [action, binding] of actionMap) {
-    const match = sequenceMatches(sequence, binding)
-    if (match === "full")    fullAction = action
-    if (match === "partial") hasPartial = true
+  for (const [action, bindings] of actionMap) {
+    for (const binding of bindings) {
+      const match = sequenceMatches(sequence, binding)
+      if (match === "full")    fullAction = action
+      if (match === "partial") hasPartial = true
+    }
   }
   return { fullAction, hasPartial }
 }

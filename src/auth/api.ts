@@ -1,5 +1,12 @@
 const MGMT = "https://api.supabase.com/v1"
 
+import type { DatabaseDriver } from "../connections/types"
+
+export interface SupabaseCreds {
+  token: string
+  ref: string
+}
+
 export interface Project {
   id: string
   name: string
@@ -57,9 +64,23 @@ async function mgmt<T>(token: string, path: string, opts?: RequestInit): Promise
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
-    throw new Error(`Supabase API ${res.status}: ${text}`)
+    throw new Error(humanizeMgmtError(res.status, text))
   }
   return res.json() as Promise<T>
+}
+
+/** Surface the underlying SQL/API message instead of the raw HTTP wrapper */
+function humanizeMgmtError(status: number, body: string): string {
+  let message = body
+  try {
+    const parsed = JSON.parse(body) as { message?: string; error?: string; msg?: string }
+    message = parsed.message ?? parsed.error ?? parsed.msg ?? body
+  } catch {}
+  message = String(message)
+    .replace(/^Failed to run sql query:\s*/i, "")
+    .replace(/\bERROR:\s*/i, "SQL error: ")
+    .trim()
+  return `supabase (${status}): ${message}`
 }
 
 async function dbQuery(
@@ -71,6 +92,21 @@ async function dbQuery(
     method: "POST",
     body: JSON.stringify({ query }),
   })
+}
+
+/** SQL execution over the Management API — used by the supabase driver */
+export async function mgmtDbQuery(
+  token: string,
+  ref: string,
+  query: string,
+): Promise<Record<string, unknown>[]> {
+  return dbQuery(token, ref, query)
+}
+
+/** Run SQL through the active driver and return raw rows */
+async function rows(driver: DatabaseDriver, sqlText: string): Promise<Record<string, unknown>[]> {
+  const result = await driver.query(sqlText)
+  return result.rows
 }
 
 export async function listProjects(token: string): Promise<Project[]> {
@@ -104,11 +140,10 @@ export async function getOrganizationMembers(token: string, slug: string): Promi
   return mgmt<OrganizationMember[]>(token, `/organizations/${slug}/members`)
 }
 
-export async function listTables(token: string, ref: string, schema = "public"): Promise<Table[]> {
+export async function listTables(driver: DatabaseDriver, schema = "public"): Promise<Table[]> {
   const [tableRows, colRows] = await Promise.all([
-    dbQuery(
-      token,
-      ref,
+    rows(
+      driver,
       `SELECT c.oid::text AS id, n.nspname AS schema, c.relname AS name,
               obj_description(c.oid, 'pg_class') AS comment
        FROM pg_catalog.pg_class c
@@ -116,9 +151,8 @@ export async function listTables(token: string, ref: string, schema = "public"):
        WHERE n.nspname = '${schema.replace(/'/g, "''")}' AND c.relkind = 'r'
        ORDER BY c.relname`,
     ),
-    dbQuery(
-      token,
-      ref,
+    rows(
+      driver,
       `SELECT a.attrelid::text AS table_id, a.attnum::text AS id,
               a.attname AS name, format_type(a.atttypid, a.atttypmod) AS data_type,
               (NOT a.attnotnull)::bool AS is_nullable,
@@ -177,22 +211,21 @@ export interface SchemaTable {
 }
 
 export async function listSchemaFull(
-  token: string,
-  ref: string,
+  driver: DatabaseDriver,
   schema = "public",
 ): Promise<SchemaTable[]> {
   const s = schema.replace(/'/g, "''")
   const [tableRows, colRows] = await Promise.all([
-    dbQuery(
-      token, ref,
+    rows(
+      driver,
       `SELECT c.oid::text AS id, n.nspname AS schema, c.relname AS name
        FROM pg_catalog.pg_class c
        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
        WHERE n.nspname = '${s}' AND c.relkind = 'r'
        ORDER BY c.relname`,
     ),
-    dbQuery(
-      token, ref,
+    rows(
+      driver,
       `SELECT
          a.attrelid::text AS table_id,
          a.attnum::text   AS id,
@@ -226,7 +259,7 @@ export async function listSchemaFull(
        WHERE n.nspname = '${s}' AND c.relkind = 'r'
          AND a.attnum > 0 AND NOT a.attisdropped
        ORDER BY a.attrelid, a.attnum`,
-    ),
+     ),
   ])
 
   const colsByTable = new Map<string, SchemaColumn[]>()
@@ -310,14 +343,19 @@ async function fetchAuthLeakedPasswordCheck(token: string, ref: string): Promise
   }
 }
 
-export async function lintProject(token: string, ref: string): Promise<LintIssue[]> {
-  const [rows, authCheck] = await Promise.all([
-    dbQuery(token, ref, splinterSql()),
-    fetchAuthLeakedPasswordCheck(token, ref),
+export async function lintProject(
+  driver: DatabaseDriver,
+  opts?: { supabase?: SupabaseCreds },
+): Promise<LintIssue[]> {
+  const [splinterRows, authCheck] = await Promise.all([
+    rows(driver, splinterSql()),
+    opts?.supabase
+      ? fetchAuthLeakedPasswordCheck(opts.supabase.token, opts.supabase.ref)
+      : Promise.resolve(null),
   ])
   const seen = new Set<string>()
   const issues: LintIssue[] = []
-  for (const row of rows) {
+  for (const row of splinterRows) {
     const meta = (row.metadata && typeof row.metadata === "object") ? row.metadata as Record<string, unknown> : {}
     const key = String(row.cache_key ?? "")
     if (key && seen.has(key)) continue
@@ -499,33 +537,67 @@ export interface StorageObject {
   }
 }
 
-export async function getStorageBuckets(token: string, ref: string): Promise<StorageBucket[]> {
-  return mgmt<StorageBucket[]>(token, `/projects/${ref}/storage/buckets`)
+export async function getStorageBuckets(driver: DatabaseDriver): Promise<StorageBucket[]> {
+  const select = (ownerExpr: string) => `
+    SELECT b.id, b.name, ${ownerExpr} AS owner, b.public,
+           b.created_at::text, b.updated_at::text,
+           b.file_size_limit, b.allowed_mime_types,
+           (SELECT count(*) FROM storage.objects o WHERE o.bucket_id = b.id)::int AS object_count
+    FROM storage.buckets b
+    ORDER BY b.name`
+  let bucketRows: Record<string, unknown>[]
+  try {
+    bucketRows = await rows(driver, select("b.owner::text"))
+  } catch {
+    // older/newer storage schemas without an owner column
+    bucketRows = await rows(driver, select("NULL"))
+  }
+  return bucketRows.map((row) => ({
+    id: String(row.id),
+    name: String(row.name),
+    owner: row.owner != null ? String(row.owner) : "",
+    public: Boolean(row.public),
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+    file_size_limit: row.file_size_limit != null ? Number(row.file_size_limit) : null,
+    allowed_mime_types: Array.isArray(row.allowed_mime_types) ? row.allowed_mime_types.map(String) : null,
+    object_count: Number(row.object_count ?? 0),
+  }))
 }
 
-export async function createStorageBucket(token: string, ref: string, name: string, isPublic: boolean): Promise<void> {
+export async function createStorageBucket(driver: DatabaseDriver, name: string, isPublic: boolean): Promise<void> {
   const escaped = name.replace(/'/g, "''")
-  await dbQuery(token, ref,
+  await rows(driver,
     `INSERT INTO storage.buckets (id, name, public) VALUES ('${escaped}', '${escaped}', ${isPublic})`,
   )
 }
 
-export async function deleteStorageBucket(token: string, ref: string, id: string): Promise<void> {
-  await mgmt<unknown>(token, `/projects/${ref}/storage/buckets/${id}`, { method: "DELETE" })
+export async function deleteStorageBucket(driver: DatabaseDriver, id: string): Promise<void> {
+  const eId = id.replace(/'/g, "''")
+  await rows(driver, `DELETE FROM storage.objects WHERE bucket_id = '${eId}'`)
+  await rows(driver, `DELETE FROM storage.buckets WHERE id = '${eId}'`)
 }
 
-export async function emptyStorageBucket(token: string, ref: string, id: string): Promise<void> {
-  await mgmt<unknown>(token, `/projects/${ref}/storage/buckets/${id}/empty`, { method: "POST" })
+export async function emptyStorageBucket(driver: DatabaseDriver, id: string): Promise<void> {
+  const eId = id.replace(/'/g, "''")
+  await rows(driver, `DELETE FROM storage.objects WHERE bucket_id = '${eId}'`)
 }
 
-export async function getStorageObjects(token: string, ref: string, bucketId: string): Promise<StorageObject[]> {
+export async function getStorageObjects(driver: DatabaseDriver, bucketId: string): Promise<StorageObject[]> {
   const escapedId = bucketId.replace(/'/g, "''")
-  const rows = await dbQuery(token, ref, `SELECT id::text, name, bucket_id, owner::text, created_at::text, updated_at::text, last_accessed_at::text, metadata::text FROM storage.objects WHERE bucket_id = '${escapedId}' ORDER BY name`)
-  return rows.map((row) => ({
+  const select = (ownerExpr: string) => `SELECT id::text, name, bucket_id, ${ownerExpr} AS owner, created_at::text, updated_at::text, last_accessed_at::text, metadata::text FROM storage.objects WHERE bucket_id = '${escapedId}' ORDER BY name`
+  let objRows: Record<string, unknown>[]
+  try {
+    objRows = await rows(driver, select("owner::text"))
+  } catch {
+    // newer storage schemas dropped the owner column
+    objRows = await rows(driver, select("NULL"))
+  }
+  return objRows.map((row) => ({
     id: String(row.id),
     name: String(row.name),
     bucket_id: String(row.bucket_id),
-    owner: String(row.owner),
+    owner: row.owner != null ? String(row.owner) : "",
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
     last_accessed_at: String(row.last_accessed_at),
@@ -533,10 +605,10 @@ export async function getStorageObjects(token: string, ref: string, bucketId: st
   }))
 }
 
-export async function deleteStorageObject(token: string, ref: string, bucketId: string, name: string): Promise<void> {
+export async function deleteStorageObject(driver: DatabaseDriver, bucketId: string, name: string): Promise<void> {
   const eBucket = bucketId.replace(/'/g, "''")
   const eName = name.replace(/'/g, "''")
-  await dbQuery(token, ref, `DELETE FROM storage.objects WHERE bucket_id = '${eBucket}' AND name = '${eName}'`)
+  await rows(driver, `DELETE FROM storage.objects WHERE bucket_id = '${eBucket}' AND name = '${eName}'`)
 }
 
 export async function fetchStorageObjectPreview(
@@ -764,8 +836,8 @@ export interface AuthUser {
   role: string
 }
 
-export async function listAuthUsers(token: string, ref: string): Promise<AuthUser[]> {
-  const rows = await dbQuery(token, ref,
+export async function listAuthUsers(driver: DatabaseDriver): Promise<AuthUser[]> {
+  const userRows = await rows(driver,
     `SELECT id::text, email, phone, created_at::text, updated_at::text,
             last_sign_in_at::text, confirmed_at::text,
             email_confirmed_at::text, phone_confirmed_at::text,
@@ -775,7 +847,7 @@ export async function listAuthUsers(token: string, ref: string): Promise<AuthUse
      ORDER BY created_at DESC
      LIMIT 200`,
   )
-  return rows.map((row) => ({
+  return userRows.map((row) => ({
     id: String(row.id),
     email: String(row.email ?? ""),
     phone: row.phone != null ? String(row.phone) : null,
@@ -811,9 +883,9 @@ export interface AuthUserDetail {
   identities: { id: string; provider: string; created_at: string }[]
 }
 
-export async function getAuthUserDB(token: string, ref: string, userId: string): Promise<AuthUserDetail | null> {
+export async function getAuthUserDB(driver: DatabaseDriver, userId: string): Promise<AuthUserDetail | null> {
   const escapedId = userId.replace(/'/g, "''")
-  const rows = await dbQuery(token, ref,
+  const userRows = await rows(driver,
     `SELECT
        id::text, email, phone, role,
        created_at::text, updated_at::text,
@@ -826,10 +898,10 @@ export async function getAuthUserDB(token: string, ref: string, userId: string):
      FROM auth.users
      WHERE id = '${escapedId}'`,
   )
-  if (rows.length === 0) return null
-  const row = rows[0]
+  if (userRows.length === 0) return null
+  const row = userRows[0]
 
-  const identityRows = await dbQuery(token, ref,
+  const identityRows = await rows(driver,
     `SELECT id::text, provider, created_at::text
      FROM auth.identities
      WHERE user_id = '${escapedId}'`,
@@ -866,21 +938,20 @@ function parseJsonObj(raw: string): Record<string, unknown> {
 }
 
 export async function deleteAuthUser(
-  token: string,
-  ref: string,
+  driver: DatabaseDriver,
   userId: string,
 ): Promise<void> {
-  await mgmt<unknown>(token, `/projects/${ref}/auth/users/${userId}`, { method: "DELETE" })
+  const escapedId = userId.replace(/'/g, "''")
+  await rows(driver, `DELETE FROM auth.users WHERE id = '${escapedId}'`)
 }
 
 export async function runQuery(
-  token: string,
-  ref: string,
+  driver: DatabaseDriver,
   query: string,
 ): Promise<{ rows: Record<string, unknown>[]; error?: string }> {
   try {
-    const rows = await dbQuery(token, ref, query)
-    return { rows }
+    const result = await driver.query(query)
+    return { rows: result.rows }
   } catch (e) {
     return { rows: [], error: String(e) }
   }

@@ -1,6 +1,6 @@
 import type { JSX } from "@opentui/solid/jsx-runtime"
 
-export type BufferType = "dashboard" | "projects" | "home" | "tables" | "table" | "sql" | "logs" | "login" | "help" | "lint" | "functions" | "function" | "add-function" | "schema" | "storage" | "bucket" | "create-bucket" | "profile" | "account" | "auth-users" | "auth-user" | "auth-config" | "users" | "project-config" | "providers" | "settings"
+export type BufferType = "dashboard" | "projects" | "connections" | "import" | "home" | "tables" | "table" | "sql" | "logs" | "login" | "help" | "lint" | "functions" | "function" | "add-function" | "schema" | "storage" | "bucket" | "create-bucket" | "profile" | "account" | "auth-users" | "auth-user" | "auth-config" | "users" | "project-config" | "providers" | "settings"
 
 export interface BufferMeta {
   id: string

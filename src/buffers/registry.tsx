@@ -1,5 +1,7 @@
 import type { BufferType, BufferRegistryEntry, BufferProps } from "./types"
 import { ProjectsBuffer } from "./projects"
+import { ConnectionsBuffer } from "./connections"
+import { ImportBuffer } from "./import"
 import { HomeBuffer } from "./home"
 import { TablesBuffer } from "./tables"
 import { TableBuffer } from "./table"
@@ -32,6 +34,8 @@ function register(entry: BufferRegistryEntry) {
 
 register({ type: "dashboard", component: DashboardBuffer, defaultTitle: () => "surp" })
 register({ type: "projects", component: ProjectsBuffer, defaultTitle: () => "Projects" })
+register({ type: "connections", component: ConnectionsBuffer, defaultTitle: () => "Connections" })
+register({ type: "import", component: ImportBuffer, defaultTitle: () => "Import" })
 register({ type: "home", component: HomeBuffer, defaultTitle: (d) => d?.["projectName"] ?? d?.["project"] ?? "Home" })
 register({ type: "tables", component: TablesBuffer, defaultTitle: (d) => d?.["projectName"] ? `${d["projectName"]}/tables` : "Tables" })
 register({ type: "table", component: TableBuffer, defaultTitle: (d) => d?.["table"] ? `${d["schema"] ?? "public"}.${d["table"]}` : "Table" })

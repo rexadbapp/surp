@@ -1,11 +1,12 @@
-import { createSignal, For, Show, onMount } from "solid-js"
-import { useAuth } from "../context/auth"
+import { createSignal, createEffect, For, Show, onMount } from "solid-js"
+import { useConnection } from "../context/connection"
 import { useBuffers } from "../context/buffers"
 import { useKeymap } from "../context/keymap"
 import { useYank } from "../context/yank"
 import { getStorageBuckets, deleteStorageBucket, type StorageBucket } from "../auth/api"
 import type { BufferProps } from "./types"
 import { COLORS } from "../ui/colors"
+import { hoverProps, isHovered } from "../ui/hover"
 
 const cache = new Map<string, StorageBucket[]>()
 
@@ -18,7 +19,7 @@ function formatDate(iso: string): string {
 }
 
 export function StorageBuffer(props: BufferProps) {
-  const auth = useAuth()
+  const connCtx = useConnection()
   const buffers = useBuffers()
   const keymap = useKeymap()
   const yank = useYank()
@@ -28,20 +29,21 @@ export function StorageBuffer(props: BufferProps) {
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<string | null>(null)
   const [cursor, setCursor] = createSignal(0)
+  const [loadedFor, setLoadedFor] = createSignal<string | null>(null)
 
   async function load(force = false) {
-    const token = auth.token()
-    const ref = projectRef()
-    if (!token || !ref) { setLoading(false); return }
+    const conn = connCtx.active()
+    if (!conn) { setError("No database connected — use :connect"); setLoading(false); return }
+    setLoadedFor(conn.id)
     if (!force) {
-      const cached = cache.get(ref)
+      const cached = cache.get(conn.id)
       if (cached) { setBuckets(cached); setLoading(false); return }
     }
     setLoading(true)
     setError(null)
     try {
-      const list = await getStorageBuckets(token, ref)
-      cache.set(ref, list)
+      const list = await getStorageBuckets(conn.driver)
+      cache.set(conn.id, list)
       setBuckets(list)
       setCursor(0)
     } catch (e) {
@@ -52,6 +54,11 @@ export function StorageBuffer(props: BufferProps) {
   }
 
   onMount(() => void load())
+
+  createEffect(() => {
+    const connId = connCtx.active()?.id ?? null
+    if (connId && connId !== loadedFor()) void load(true)
+  })
 
   keymap.onAction("move_up", () => {
     if (!props.focused) return
@@ -80,11 +87,10 @@ export function StorageBuffer(props: BufferProps) {
     if (!props.focused) return
     const b = buckets()[cursor()]
     if (!b) return
-    const token = auth.token()
-    const ref = projectRef()
-    if (!token || !ref) return
-    deleteStorageBucket(token, ref, b.id).then(() => {
-      cache.delete(ref)
+    const conn = connCtx.active()
+    if (!conn) return
+    deleteStorageBucket(conn.driver, b.id).then(() => {
+      cache.delete(conn.id)
       void load(true)
     }).catch((e) => setError(String(e)))
   })
@@ -96,7 +102,8 @@ export function StorageBuffer(props: BufferProps) {
   })
   keymap.onAction("refresh", () => {
     if (!props.focused) return
-    cache.delete(projectRef())
+    const conn = connCtx.active()
+    if (conn) cache.delete(conn.id)
     void load(true)
   })
 
@@ -135,13 +142,15 @@ export function StorageBuffer(props: BufferProps) {
         <For each={buckets()}>
           {(b, i) => {
             const active = () => props.focused && i() === cursor()
+            const hovered = () => isHovered(`storage-row-${props.meta.id}-${i()}`)
             return (
               <box
                 flexDirection="row"
                 paddingLeft={1}
                 paddingRight={1}
                 height={1}
-                backgroundColor={active() ? COLORS.overlay : COLORS.background}
+                backgroundColor={active() ? COLORS.overlay : hovered() ? COLORS.surface : COLORS.background}
+                {...hoverProps(`storage-row-${props.meta.id}-${i()}`, `${b.name} — ${b.public ? "public" : "private"} · ${b.object_count} objects`)}
                 onMouseUp={() => { setCursor(i()); buffers.open("bucket", { project: projectRef(), bucketId: b.id, bucketName: b.name }, `Bucket: ${b.name}`) }}
               >
                 <text fg={active() ? COLORS.blue : COLORS.text} width={28}>

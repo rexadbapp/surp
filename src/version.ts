@@ -7,4 +7,4 @@ const ENV = typeof process !== "undefined" ? process.env : ({} as Record<string,
 export const UPDATE_REPO: string = ENV["SURP_UPDATE_REPO"] ?? "rexadbapp/surp"
 
 export const CURRENT_VERSION: string =
-  process.env.SURP_VERSION ?? "0.1.2"
+  process.env.SURP_VERSION ?? "0.1.4"

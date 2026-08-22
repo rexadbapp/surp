@@ -1,7 +1,7 @@
 import { createSignal, createMemo, Show, onMount, onCleanup } from "solid-js"
 import { useRenderer } from "@opentui/solid"
 import type { KeyEvent } from "@opentui/core"
-import { useAuth } from "../context/auth"
+import { useConnection } from "../context/connection"
 import { useMode } from "../context/mode"
 import { useBuffers } from "../context/buffers"
 import { createStorageBucket } from "../auth/api"
@@ -11,7 +11,7 @@ import { COLORS } from "../ui/colors"
 type Field = "name" | "public"
 
 export function CreateBucketBuffer(props: BufferProps) {
-  const auth = useAuth()
+  const connCtx = useConnection()
   const mode = useMode()
   const buffers = useBuffers()
   const renderer = useRenderer()
@@ -26,15 +26,14 @@ export function CreateBucketBuffer(props: BufferProps) {
   async function submit() {
     const n = name().trim()
     if (!n) { setError("Bucket name is required"); return }
-    const token = auth.token()
-    const r = ref()
-    if (!token || !r) { setError("Not authenticated"); return }
+    const conn = connCtx.active()
+    if (!conn) { setError("No database connected — use :connect"); return }
     setSubmitting(true)
     setError(null)
     try {
-      await createStorageBucket(token, r, n, isPublic())
+      await createStorageBucket(conn.driver, n, isPublic())
       buffers.close(props.meta.id)
-      buffers.open("storage", { project: r }, `Storage: ${r}`)
+      buffers.open("storage", { project: ref() }, ref() ? `Storage: ${ref()}` : "Storage")
     } catch (e) {
       setError(String(e))
       setSubmitting(false)

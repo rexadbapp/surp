@@ -1,6 +1,7 @@
 import { useTerminalDimensions } from "@opentui/solid"
 import { createMemo, onMount, Show } from "solid-js"
 import { AuthProvider, useAuth } from "./context/auth"
+import { ConnectionProvider, useConnection } from "./context/connection"
 import { ModeProvider, useMode } from "./context/mode"
 import { BuffersProvider, useBuffers } from "./context/buffers"
 import { KeymapProvider } from "./context/keymap"
@@ -9,6 +10,7 @@ import { StatusBar } from "./ui/statusbar"
 import { CommandPalette } from "./command/palette"
 import { ThemePicker } from "./command/theme-picker"
 import { CursorPicker } from "./command/cursor-picker"
+import { TooltipLayer } from "./ui/tooltip"
 import { Layout } from "./panes/layout"
 import { initCommands } from "./command/commands"
 import { COLORS } from "./ui/colors"
@@ -22,6 +24,7 @@ interface AppProps {
 function AppInner(props: AppProps) {
   const dimensions = useTerminalDimensions()
   const auth = useAuth()
+  const connCtx = useConnection()
   const buffers = useBuffers()
   const mode = useMode()
 
@@ -31,7 +34,7 @@ function AppInner(props: AppProps) {
   const contentHeight = createMemo(() => Math.max(1, height() - 1))
 
   onMount(() => {
-    initCommands(buffers, auth, mode)
+    initCommands(buffers, auth, mode, connCtx)
     buffers.open("dashboard")
   })
 
@@ -60,6 +63,7 @@ function AppInner(props: AppProps) {
             <CursorPicker width={width()} height={contentHeight()} />
           </box>
         </Show>
+        <TooltipLayer width={width()} height={contentHeight()} />
       </box>
 
       <StatusBar width={width()} />
@@ -72,11 +76,13 @@ export function App(props: AppProps) {
     <AuthProvider>
       <ModeProvider>
         <BuffersProvider>
-          <YankProvider>
-            <KeymapProvider keybindings={props.config.keybindings}>
-              <AppInner config={props.config} />
-            </KeymapProvider>
-          </YankProvider>
+          <ConnectionProvider>
+            <YankProvider>
+              <KeymapProvider keybindings={props.config.keybindings}>
+                <AppInner config={props.config} />
+              </KeymapProvider>
+            </YankProvider>
+          </ConnectionProvider>
         </BuffersProvider>
       </ModeProvider>
     </AuthProvider>

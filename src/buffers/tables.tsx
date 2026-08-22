@@ -1,35 +1,37 @@
-import { createSignal, For, Show, onMount } from "solid-js"
-import { useAuth } from "../context/auth"
+import { createSignal, createEffect, For, Show, onMount } from "solid-js"
+import { useConnection } from "../context/connection"
 import { useBuffers } from "../context/buffers"
 import { useKeymap } from "../context/keymap"
 import { useYank } from "../context/yank"
 import { listTables, type Table } from "../auth/api"
 import type { BufferProps } from "./types"
 import { COLORS } from "../ui/colors"
+import { hoverProps, isHovered } from "../ui/hover"
 
 const tablesCache = new Map<string, Table[]>()
 
 export function TablesBuffer(props: BufferProps) {
-  const auth    = useAuth()
+  const connCtx = useConnection()
   const buffers = useBuffers()
-  const keymap  = useKeymap()
-  const yank    = useYank()
+  const keymap = useKeymap()
+  const yank = useYank()
   const [tables, setTables] = createSignal<Table[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<string | null>(null)
   const [cursor, setCursor] = createSignal(0)
+  const [loadedFor, setLoadedFor] = createSignal<string | null>(null)
 
   const projectRef = () => props.meta.data?.["project"] ?? ""
   const schema = () => props.meta.data?.["schema"] ?? "public"
 
   async function load() {
-    const token = auth.token()
-    const ref = projectRef()
-    if (!token || !ref) { setLoading(false); return }
+    const conn = connCtx.active()
+    if (!conn) { setError("No database connected — use :connect"); setLoading(false); return }
+    setLoadedFor(conn.id)
     setLoading(true)
     setError(null)
     try {
-      const list = await listTables(token, ref, schema())
+      const list = await listTables(conn.driver, schema())
       setTables(list)
       tablesCache.set(props.meta.id, list)
     } catch (e) {
@@ -41,8 +43,16 @@ export function TablesBuffer(props: BufferProps) {
 
   onMount(() => {
     const cached = tablesCache.get(props.meta.id)
-    if (cached) { setTables(cached); setLoading(false) }
+    if (cached) { setLoadedFor(connCtx.active()?.id ?? null); setTables(cached); setLoading(false) }
     else void load()
+  })
+
+  createEffect(() => {
+    const connId = connCtx.active()?.id ?? null
+    if (connId && connId !== loadedFor()) {
+      tablesCache.delete(props.meta.id)
+      void load()
+    }
   })
 
   keymap.onAction("refresh", () => {
@@ -80,7 +90,7 @@ export function TablesBuffer(props: BufferProps) {
       {/* Header */}
       <box paddingLeft={1} height={1} backgroundColor={COLORS.overlay} flexDirection="row">
         <text fg={COLORS.subtext} attributes={1}>Tables  </text>
-        <text fg={COLORS.muted}>{projectRef()}/{schema()}</text>
+        <text fg={COLORS.muted}>{projectRef() || connCtx.active()?.label || "—"} / {schema()}</text>
       </box>
 
       <Show when={loading()}>
@@ -97,12 +107,14 @@ export function TablesBuffer(props: BufferProps) {
         <For each={tables()}>
           {(table, i) => {
             const active = () => props.focused && i() === cursor()
+            const hovered = () => isHovered(`tables-row-${props.meta.id}-${i()}`)
             return (
               <box
                 flexDirection="row"
                 paddingLeft={1}
                 height={1}
-                backgroundColor={active() ? COLORS.overlay : COLORS.background}
+                backgroundColor={active() ? COLORS.overlay : hovered() ? COLORS.surface : COLORS.background}
+                {...hoverProps(`tables-row-${props.meta.id}-${i()}`)}
                 onMouseUp={() => { setCursor(i()); buffers.open("table", { project: projectRef(), schema: table.schema, table: table.name }, `${table.schema}.${table.name}`) }}
               >
                 <text fg={active() ? COLORS.blue : COLORS.text} width={32}>

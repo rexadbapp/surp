@@ -1,10 +1,11 @@
 import { createSignal, createEffect, For, Show, onMount } from "solid-js"
-import { useAuth } from "../context/auth"
+import { useConnection } from "../context/connection"
 import { useKeymap } from "../context/keymap"
 import { useYank } from "../context/yank"
 import { getStorageObjects, deleteStorageObject, fetchStorageObjectPreview, type StorageObject } from "../auth/api"
 import type { BufferProps } from "./types"
 import { COLORS } from "../ui/colors"
+import { hoverProps, isHovered } from "../ui/hover"
 
 const objCache = new Map<string, StorageObject[]>()
 
@@ -35,7 +36,7 @@ function rgbToHex(r: number, g: number, b: number): string {
 }
 
 export function BucketBuffer(props: BufferProps) {
-  const auth = useAuth()
+  const connCtx = useConnection()
   const keymap = useKeymap()
   const yank = useYank()
 
@@ -52,17 +53,18 @@ export function BucketBuffer(props: BufferProps) {
   const [previewPw, setPreviewPw] = createSignal(0)
   const [previewPh, setPreviewPh] = createSignal(0)
   const [previewLoading, setPreviewLoading] = createSignal(false)
+  const [loadedFor, setLoadedFor] = createSignal<string | null>(null)
 
-  const cacheKey = () => `${projectRef()}/${bucketId()}`
+  const cacheKey = () => `${connCtx.active()?.id ?? "none"}/${bucketId()}`
   const leftWidth = () => Math.max(18, Math.floor(props.width * 0.38))
   const rightWidth = () => props.width - leftWidth()
   let previewReqId = 0
 
   async function load(force = false) {
-    const token = auth.token()
-    const ref = projectRef()
+    const conn = connCtx.active()
     const bId = bucketId()
-    if (!token || !ref || !bId) { setLoading(false); return }
+    if (!conn || !bId) { setLoading(false); return }
+    setLoadedFor(conn.id)
     if (!force) {
       const cached = objCache.get(cacheKey())
       if (cached) { setObjects(cached); setLoading(false); return }
@@ -70,7 +72,7 @@ export function BucketBuffer(props: BufferProps) {
     setLoading(true)
     setError(null)
     try {
-      const list = await getStorageObjects(token, ref, bId)
+      const list = await getStorageObjects(conn.driver, bId)
       objCache.set(cacheKey(), list)
       setObjects(list)
       setCursor(0)
@@ -84,6 +86,11 @@ export function BucketBuffer(props: BufferProps) {
   onMount(() => void load())
 
   createEffect(() => {
+    const connId = connCtx.active()?.id ?? null
+    if (connId && connId !== loadedFor()) void load(true)
+  })
+
+  createEffect(() => {
     const obj = objects()[cursor()]
     setPreviewText(null)
     setPreviewPixels(null)
@@ -91,12 +98,16 @@ export function BucketBuffer(props: BufferProps) {
     setPreviewPh(0)
     setPreviewLoading(false)
     if (!obj) return
+    // previews fetch over Supabase's public object URL — not applicable to raw PG
+    const conn = connCtx.active()
+    if (!conn || conn.kind !== "supabase" || !conn.supabase) return
+    const sbRef = conn.supabase.ref
     const mime = obj.metadata?.mimetype ?? ""
     const id = ++previewReqId
     setPreviewLoading(true)
 
     if (isTextMime(mime)) {
-      fetchStorageObjectPreview(projectRef(), bucketId(), obj.name, 4096)
+      fetchStorageObjectPreview(sbRef, bucketId(), obj.name, 4096)
         .then((text) => {
           if (id === previewReqId) setPreviewText(text || "(empty)")
         })
@@ -105,7 +116,7 @@ export function BucketBuffer(props: BufferProps) {
           if (id === previewReqId) setPreviewLoading(false)
         })
     } else if (isImageMime(mime)) {
-      const url = `https://${projectRef()}.supabase.co/storage/v1/object/public/${bucketId()}/${obj.name}`
+      const url = `https://${sbRef}.supabase.co/storage/v1/object/public/${bucketId()}/${obj.name}`
       setPreviewPixels(null)
       imageToPixels(url, rightWidth() - 2)
         .then((data) => {
@@ -162,11 +173,10 @@ export function BucketBuffer(props: BufferProps) {
     if (!props.focused) return
     const obj = objects()[cursor()]
     if (!obj) return
-    const token = auth.token()
-    const ref = projectRef()
+    const conn = connCtx.active()
     const bId = bucketId()
-    if (!token || !ref || !bId) return
-    deleteStorageObject(token, ref, bId, obj.name).then(() => {
+    if (!conn || !bId) return
+    deleteStorageObject(conn.driver, bId, obj.name).then(() => {
       objCache.delete(cacheKey())
       void load(true)
     }).catch((e) => setError(String(e)))
@@ -398,14 +408,17 @@ export function BucketBuffer(props: BufferProps) {
           <Show when={!loading()}>
             <For each={objects()}>
               {(obj, i) => {
+                const id = `bucket-obj-${props.meta.id}-${i()}`
                 const active = () => props.focused && i() === cursor()
+                const hovered = () => isHovered(id)
                 const size = obj.metadata?.size != null ? formatSize(obj.metadata.size) : ""
                 return (
                   <box
                     flexDirection="row"
                     paddingLeft={1}
                     height={1}
-                    backgroundColor={active() ? COLORS.overlay : COLORS.background}
+                    backgroundColor={active() ? COLORS.overlay : hovered() ? COLORS.surface : COLORS.background}
+                    {...hoverProps(id, trunc(`${obj.name} — ${obj.metadata?.mimetype ?? "unknown type"}`, 60))}
                   >
                     <text fg={active() ? COLORS.blue : COLORS.text} width={leftWidth() - 9}>
                       {active() ? "▶ " : "  "}{trunc(obj.name, leftWidth() - 11)}

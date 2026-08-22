@@ -1,5 +1,5 @@
 import { createSignal, createMemo, createEffect, untrack, For, Show, onMount } from "solid-js"
-import { useAuth } from "../context/auth"
+import { useConnection } from "../context/connection"
 import { useBuffers } from "../context/buffers"
 import { useKeymap } from "../context/keymap"
 import { listSchemaFull, type SchemaTable } from "../auth/api"
@@ -228,7 +228,7 @@ function buildCanvas(
 
 // ── component ─────────────────────────────────────────────────────────────────
 export function SchemaBuffer(props: BufferProps) {
-  const auth    = useAuth()
+  const connCtx = useConnection()
   const buffers = useBuffers()
   const keymap  = useKeymap()
 
@@ -241,18 +241,20 @@ export function SchemaBuffer(props: BufferProps) {
   const [cursor,  setCursor]  = createSignal(0)
   const [panX,    setPanX]    = createSignal(0)
   const [panY,    setPanY]    = createSignal(0)
+  const [loadedFor, setLoadedFor] = createSignal<string | null>(null)
 
   async function load(force = false) {
-    const token = auth.token(), r = ref()
-    if (!token || !r) return
-    const ck = `${r}:${schema()}`
+    const conn = connCtx.active()
+    if (!conn) return
+    setLoadedFor(conn.id)
+    const ck = `${conn.id}:${schema()}`
     if (!force) {
       const cached = schemaCache.get(ck)
       if (cached) { setTables(cached); return }
     }
     setLoading(true); setError(null)
     try {
-      const data = await listSchemaFull(token, r, schema())
+      const data = await listSchemaFull(conn.driver, schema())
       schemaCache.set(ck, data)
       setTables(data); setCursor(0); setPanX(0); setPanY(0)
     } catch (e) { setError(String(e)) }
@@ -260,6 +262,11 @@ export function SchemaBuffer(props: BufferProps) {
   }
 
   onMount(() => void load())
+
+  createEffect(() => {
+    const connId = connCtx.active()?.id ?? null
+    if (connId && connId !== loadedFor()) void load(true)
+  })
 
   const layout = createMemo(() => layoutTables(tables()))
 

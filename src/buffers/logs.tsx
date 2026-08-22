@@ -5,6 +5,7 @@ import { useYank } from "../context/yank"
 import { getEdgeLogs, getPostgresLogs, getAuthLogs, type LogRow } from "../auth/api"
 import type { BufferProps } from "./types"
 import { COLORS } from "../ui/colors"
+import { hoverProps, isHovered } from "../ui/hover"
 
 type LogTab = "api" | "database" | "auth"
 const TABS: LogTab[] = ["api", "database", "auth"]
@@ -189,14 +190,16 @@ export function LogsBuffer(props: BufferProps) {
       <box height={1} flexDirection="row" backgroundColor={COLORS.surface} paddingLeft={1}>
         <For each={TABS}>
           {(t) => {
-            const active = () => t === tab()
+            const active  = () => t === tab()
+            const hovered = () => isHovered(`logs-tab-${t.toLowerCase()}`)
             return (
               <box
                 paddingLeft={1} paddingRight={2}
-                backgroundColor={active() ? COLORS.overlay : COLORS.surface}
+                backgroundColor={active() ? COLORS.overlay : hovered() ? COLORS.overlay : COLORS.surface}
+                {...hoverProps(`logs-tab-${t.toLowerCase()}`, `View ${t.toLowerCase()} logs`)}
                 onMouseUp={() => switchTab(t)}
               >
-                <text fg={active() ? COLORS.mauve : COLORS.muted} attributes={active() ? 1 : 0}>
+                <text fg={active() ? COLORS.mauve : COLORS.muted} attributes={active() || hovered() ? 1 : 0}>
                   {TAB_LABEL[t]}
                 </text>
               </box>

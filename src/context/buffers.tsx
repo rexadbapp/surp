@@ -1,6 +1,7 @@
 import { createContext, useContext, createSignal, type Accessor, type ParentProps } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { type BufferMeta, type BufferType, newBufferId } from "../buffers/types"
+import { clearHover } from "../ui/hover"
 
 export interface BuffersContextValue {
   list: BufferMeta[]
@@ -20,6 +21,8 @@ function defaultTitle(type: BufferType, data?: Record<string, string>): string {
   switch (type) {
     case "dashboard": return "surp"
     case "projects": return "Projects"
+    case "connections": return "Connections"
+    case "import": return "Import"
     case "home": return data?.["projectName"] ?? data?.["project"] ?? "Home"
     case "tables": return data?.schema ? `${data.project}/${data.schema}` : data?.project ?? "Tables"
     case "table": return data?.table ? `${data.schema ?? "public"}.${data.table}` : "Table"
@@ -51,6 +54,13 @@ export function BuffersProvider(props: ParentProps) {
   const [list, setList] = createStore<BufferMeta[]>([])
   const [active, setActive] = createSignal<string | null>(null)
 
+  // Every buffer activation change drops hover state — otherwise a tooltip
+  // from the previous tab could appear after switching with a stationary cursor.
+  const activate = (id: string | null) => {
+    clearHover()
+    setActive(id)
+  }
+
   const open = (type: BufferType, data?: Record<string, string>, title?: string): string => {
     const id = newBufferId()
     const meta: BufferMeta = {
@@ -60,7 +70,7 @@ export function BuffersProvider(props: ParentProps) {
       data,
     }
     setList(produce((l) => l.push(meta)))
-    setActive(id)
+    activate(id)
     return id
   }
 
@@ -71,24 +81,24 @@ export function BuffersProvider(props: ParentProps) {
     // Focus adjacent buffer
     if (active() === id) {
       const next = list[idx] ?? list[idx - 1]
-      setActive(next?.id ?? null)
+      activate(next?.id ?? null)
     }
   }
 
-  const focus = (id: string) => setActive(id)
+  const focus = (id: string) => activate(id)
 
   const nextBuffer = () => {
     const idx = list.findIndex((b) => b.id === active())
     if (idx === -1) return
     const next = list[(idx + 1) % list.length]
-    if (next) setActive(next.id)
+    if (next) activate(next.id)
   }
 
   const prevBuffer = () => {
     const idx = list.findIndex((b) => b.id === active())
     if (idx === -1) return
     const prev = list[(idx - 1 + list.length) % list.length]
-    if (prev) setActive(prev.id)
+    if (prev) activate(prev.id)
   }
 
   const activeBuffer = () => list.find((b) => b.id === active())

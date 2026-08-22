@@ -1,7 +1,7 @@
 import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup } from "solid-js"
 import { useRenderer } from "@opentui/solid"
 import type { KeyEvent, MouseEvent } from "@opentui/core"
-import { useAuth } from "../context/auth"
+import { useConnection } from "../context/connection"
 import { useBuffers } from "../context/buffers"
 import { useKeymap } from "../context/keymap"
 import { useMode } from "../context/mode"
@@ -9,6 +9,7 @@ import { useYank } from "../context/yank"
 import { runQuery } from "../auth/api"
 import type { BufferProps } from "./types"
 import { COLORS } from "../ui/colors"
+import { hoverProps, isHovered } from "../ui/hover"
 
 const MAX_COL_W = 24
 const PAGE_SIZE = 100
@@ -29,7 +30,7 @@ function calcWidths(cols: string[], rows: Record<string, unknown>[]): number[] {
 }
 
 export function TableBuffer(props: BufferProps) {
-  const auth    = useAuth()
+  const connCtx = useConnection()
   const buffers = useBuffers()
   const keymap  = useKeymap()
   const yank    = useYank()
@@ -49,6 +50,7 @@ export function TableBuffer(props: BufferProps) {
   const [isFiltering, setIsFiltering] = createSignal(false)
   const [sortCol, setSortCol] = createSignal<number | null>(null)
   const [sortDir, setSortDir] = createSignal<"asc" | "desc" | null>(null)
+  const [loadedFor, setLoadedFor] = createSignal<string | null>(null)
 
   // pagination
   const [page, setPage] = createSignal(1)
@@ -87,12 +89,14 @@ export function TableBuffer(props: BufferProps) {
   }
 
   async function loadPage(n: number) {
-    const token = auth.token()
-    if (!token || !ref() || !table()) { setLoading(false); return }
+    setRows([]); setCols([])
+    const conn = connCtx.active()
+    if (!conn || !table()) { setLoading(false); return }
+    setLoadedFor(conn.id)
     setLoading(true); setError(null)
     try {
       const q = `SELECT * FROM ${schema()}.${table()} LIMIT ${PAGE_SIZE} OFFSET ${(n - 1) * PAGE_SIZE}`
-      const result = await runQuery(token, ref(), q)
+      const result = await runQuery(conn.driver, q)
       if (result.error) { setError(result.error); return }
       const r = result.rows
       const c = r.length > 0 ? Object.keys(r[0]!) : []
@@ -124,9 +128,18 @@ export function TableBuffer(props: BufferProps) {
   onMount(() => {
     const cached = tableCache.get(props.meta.id)
     if (cached) {
+      setLoadedFor(connCtx.active()?.id ?? null)
       setRows(cached.rows); setCols(cached.cols); setWidths(cached.widths)
       setLoading(false)
     } else {
+      void load()
+    }
+  })
+
+  createEffect(() => {
+    const connId = connCtx.active()?.id ?? null
+    if (connId && connId !== loadedFor()) {
+      tableCache.delete(props.meta.id)
       void load()
     }
   })
@@ -384,8 +397,8 @@ export function TableBuffer(props: BufferProps) {
   async function saveEdit() {
     const e = editing()
     if (!e) return
-    const token = auth.token()
-    if (!token) { setEditError("Not authenticated"); return }
+    const conn = connCtx.active()
+    if (!conn) { setEditError("No database connected — use :connect"); return }
     setEditSaving(true)
     setEditError(null)
 
@@ -403,7 +416,7 @@ export function TableBuffer(props: BufferProps) {
     const q = `UPDATE ${schema()}.${table()} SET ${e.col} = '${escVal}' WHERE ${wheres.join(" AND ")}`
 
     try {
-      await runQuery(token, ref(), q)
+      await runQuery(conn.driver, q)
       setEditing(null)
       setEditInput("")
       mode.enterNormal()
@@ -481,12 +494,15 @@ export function TableBuffer(props: BufferProps) {
         {/* Data rows */}
         <For each={visRows()}>
           {(row, vi) => {
+            const id = `grid-row-${props.meta.id}-${vi() + rowOff()}`
             const isRowActive = () => props.focused && vi() + rowOff() === cursor()
+            const hovered = () => isHovered(id)
             return (
               <box
                 flexDirection="row"
                 height={1}
-                backgroundColor={isRowActive() ? COLORS.overlay : COLORS.background}
+                backgroundColor={isRowActive() ? COLORS.overlay : hovered() ? COLORS.surface : COLORS.background}
+                {...hoverProps(id, "e edit cell · ↵ insert SQL · y yank")}
                 onMouseUp={() => setCursor(vi() + rowOff())}
                 onMouseScroll={onScroll}
               >

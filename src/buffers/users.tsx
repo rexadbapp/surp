@@ -1,5 +1,5 @@
-import { createSignal, createMemo, For, Show, onMount } from "solid-js"
-import { useAuth } from "../context/auth"
+import { createSignal, createEffect, createMemo, For, Show, onMount } from "solid-js"
+import { useConnection } from "../context/connection"
 import { useBuffers } from "../context/buffers"
 import { useKeymap } from "../context/keymap"
 import { useYank } from "../context/yank"
@@ -7,6 +7,7 @@ import { listAuthUsers, getAuthUserDB, deleteAuthUser } from "../auth/api"
 import type { AuthUser, AuthUserDetail } from "../auth/api"
 import type { BufferProps } from "./types"
 import { COLORS } from "../ui/colors"
+import { hoverProps, isHovered } from "../ui/hover"
 
 // ─── Shared helpers ───────────────────────────────────────────
 
@@ -63,13 +64,13 @@ const TAB_LBL: Record<Tab, string> = {
 // ─── Detail View ──────────────────────────────────────────────
 
 function DetailView(props: BufferProps) {
-  const auth   = useAuth()
+  const connCtx = useConnection()
   const keymap = useKeymap()
   const yank   = useYank()
 
   const ref    = () => String(props.meta.data?.["project"] ?? "")
   const userId = () => String(props.meta.data?.["userId"] ?? "")
-  const ck     = () => `${ref()}/${userId()}`
+  const ck     = () => `${connCtx.active()?.id ?? "none"}/${userId()}`
 
   const [tab, setTab] = createSignal<Tab>("overview")
   const [scroll, setScroll] = createSignal(0)
@@ -78,14 +79,14 @@ function DetailView(props: BufferProps) {
   const [error, setError] = createSignal<string | null>(null)
 
   async function load(force = false) {
-    const token = auth.token()
-    const r = ref(), u = userId()
-    if (!token || !r || !u) return
-    const key = ck()
+    const conn = connCtx.active()
+    const u = userId()
+    if (!conn || !u) return
+    const key = `${conn.id}/${u}`
     if (!force && detailCache.has(key)) { setUser(detailCache.get(key)!); return }
     setLoading(true); setError(null)
     try {
-      const d = await getAuthUserDB(token, r, u)
+      const d = await getAuthUserDB(conn.driver, u)
       if (d) { detailCache.set(key, d); setUser(d) }
       else setError("User not found")
     } catch (e) { setError(String(e)) }
@@ -284,23 +285,24 @@ function DetailView(props: BufferProps) {
 // ─── List View ────────────────────────────────────────────────
 
 function ListView(props: BufferProps) {
-  const auth    = useAuth()
+  const connCtx = useConnection()
   const buffers = useBuffers()
   const keymap  = useKeymap()
   const [users, setUsers] = createSignal<AuthUser[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<string | null>(null)
   const [cursor, setCursor] = createSignal(0)
+  const [loadedFor, setLoadedFor] = createSignal<string | null>(null)
 
   const projectRef = () => props.meta.data?.["project"] ?? ""
 
   async function load() {
-    const token = auth.token()
-    const ref = projectRef()
-    if (!token || !ref) { setLoading(false); return }
+    const conn = connCtx.active()
+    if (!conn) { setError("No database connected — use :connect"); setLoading(false); return }
+    setLoadedFor(conn.id)
     setLoading(true); setError(null)
     try {
-      const list = await listAuthUsers(token, ref)
+      const list = await listAuthUsers(conn.driver)
       setUsers(list)
       usersCache.set(props.meta.id, list)
     } catch (e) { setError(String(e)) }
@@ -309,8 +311,16 @@ function ListView(props: BufferProps) {
 
   onMount(() => {
     const cached = usersCache.get(props.meta.id)
-    if (cached) { setUsers(cached); setLoading(false) }
+    if (cached) { setLoadedFor(connCtx.active()?.id ?? null); setUsers(cached); setLoading(false) }
     else void load()
+  })
+
+  createEffect(() => {
+    const connId = connCtx.active()?.id ?? null
+    if (connId && connId !== loadedFor()) {
+      usersCache.delete(props.meta.id)
+      void load()
+    }
   })
 
   keymap.onAction("refresh", () => {
@@ -341,9 +351,9 @@ function ListView(props: BufferProps) {
     if (!props.focused) return
     const u = users()[cursor()]
     if (!u) return
-    const token = auth.token()
-    if (!token) return
-    deleteAuthUser(token, projectRef(), u.id)
+    const conn = connCtx.active()
+    if (!conn) return
+    deleteAuthUser(conn.driver, u.id)
       .then(() => { void load() })
       .catch((e: Error) => setError(String(e)))
   })
@@ -372,12 +382,14 @@ function ListView(props: BufferProps) {
         <For each={users()}>
           {(user, i) => {
             const active = () => props.focused && i() === cursor()
+            const hovered = () => isHovered(`users-row-${props.meta.id}-${i()}`)
             return (
               <box
                 flexDirection="row"
                 paddingLeft={1}
                 height={1}
-                backgroundColor={active() ? COLORS.overlay : COLORS.background}
+                backgroundColor={active() ? COLORS.overlay : hovered() ? COLORS.surface : COLORS.background}
+                {...hoverProps(`users-row-${props.meta.id}-${i()}`, trunc(`${user.email ?? user.phone ?? user.id} — ${providerLabel(user)}`, 60))}
                 onMouseUp={() => {
                   setCursor(i())
                   buffers.open("auth-user", { project: projectRef(), userId: user.id }, `User: ${user.email ?? user.phone ?? user.id.slice(0, 8)}`)

@@ -1,13 +1,14 @@
-import { createSignal, createMemo, For, Show, onMount, onCleanup } from "solid-js"
+import { createSignal, createEffect, createMemo, For, Show, onMount, onCleanup } from "solid-js"
 import { useRenderer } from "@opentui/solid"
 import type { KeyEvent } from "@opentui/core"
-import { useAuth } from "../context/auth"
+import { useConnection } from "../context/connection"
 import { useKeymap } from "../context/keymap"
 import { useMode } from "../context/mode"
 import { useYank } from "../context/yank"
 import { lintProject, type LintIssue } from "../auth/api"
 import type { BufferProps } from "./types"
 import { COLORS } from "../ui/colors"
+import { hoverProps, isHovered } from "../ui/hover"
 
 const issueCache = new Map<string, LintIssue[]>()
 
@@ -41,7 +42,7 @@ function wrap(text: string, width: number): string[] {
 }
 
 export function LintBuffer(props: BufferProps) {
-  const auth   = useAuth()
+  const connCtx = useConnection()
   const keymap = useKeymap()
   const yank   = useYank()
   const mode   = useMode()
@@ -52,21 +53,22 @@ export function LintBuffer(props: BufferProps) {
   const [error,   setError]   = createSignal<string | null>(null)
   const [filter,  setFilter]  = createSignal<Filter>("ALL")
   const [cursor,  setCursor]  = createSignal(0)
+  const [loadedFor, setLoadedFor] = createSignal<string | null>(null)
 
   const projectRef = () => String(props.meta.data?.["project"] ?? "")
 
   async function load(force = false) {
-    const token = auth.token()
-    const ref = projectRef()
-    if (!token || !ref) { setError("No project — open via :lint <ref>"); return }
+    const conn = connCtx.active()
+    if (!conn) { setError("No database connected — use :connect"); return }
+    setLoadedFor(conn.id)
     if (!force) {
-      const cached = issueCache.get(ref)
+      const cached = issueCache.get(conn.id)
       if (cached) { setIssues(cached); return }
     }
     setLoading(true); setError(null)
     try {
-      const data = await lintProject(token, ref)
-      issueCache.set(ref, data)
+      const data = await lintProject(conn.driver, conn.supabase ? { supabase: conn.supabase } : undefined)
+      issueCache.set(conn.id, data)
       setIssues(data)
       setCursor(0)
     } catch (e) {
@@ -77,6 +79,11 @@ export function LintBuffer(props: BufferProps) {
   }
 
   onMount(() => { void load() })
+
+  createEffect(() => {
+    const connId = connCtx.active()?.id ?? null
+    if (connId && connId !== loadedFor()) void load(true)
+  })
 
   const filtered = createMemo(() => {
     const f = filter()
@@ -231,7 +238,7 @@ export function LintBuffer(props: BufferProps) {
       {/* Header */}
       <box height={1} paddingLeft={1} backgroundColor={COLORS.overlay} flexDirection="row">
         <text fg={COLORS.mauve} attributes={1}>Lint  </text>
-        <text fg={COLORS.blue}>{projectRef() || "no project"}  </text>
+        <text fg={COLORS.blue}>{projectRef() || connCtx.active()?.label || "no connection"}  </text>
         <Show when={loading()}>
           <text fg={COLORS.yellow}>running…</text>
         </Show>
@@ -277,6 +284,7 @@ export function LintBuffer(props: BufferProps) {
             {(issue, vi) => {
               const absIdx = () => vi() + visItems().start
               const active = () => props.focused && absIdx() === cursor()
+              const hovered = () => isHovered(`lint-row-${props.meta.id}-${absIdx()}`)
               const obj = () => {
                 const hint = detailHint(issue)
                 if (hint) return hint
@@ -289,7 +297,8 @@ export function LintBuffer(props: BufferProps) {
                 <box
                   flexDirection="row"
                   height={1}
-                  backgroundColor={active() ? COLORS.overlay : COLORS.background}
+                  backgroundColor={active() ? COLORS.overlay : hovered() ? COLORS.surface : COLORS.background}
+                  {...hoverProps(`lint-row-${props.meta.id}-${absIdx()}`, issue.title)}
                   onMouseUp={() => setCursor(absIdx())}
                 >
                   <text fg={COLORS.muted} width={2}>{active() ? "▶ " : "  "}</text>

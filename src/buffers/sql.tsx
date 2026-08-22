@@ -1,7 +1,7 @@
 import { createSignal, createMemo, createEffect, onMount, onCleanup, Show, For } from "solid-js"
 import { useRenderer } from "@opentui/solid"
 import type { KeyEvent } from "@opentui/core"
-import { useAuth } from "../context/auth"
+import { useConnection } from "../context/connection"
 import { useKeymap } from "../context/keymap"
 import { useYank } from "../context/yank"
 import { runQuery, listTables } from "../auth/api"
@@ -27,7 +27,7 @@ function calcResultWidths(cols: string[], rows: Record<string, unknown>[]): numb
 function trunc(s: string, w: number) { return s.length <= w ? s : s.slice(0, w - 1) + "…" }
 
 export function SqlBuffer(props: BufferProps) {
-  const auth     = useAuth()
+  const connCtx  = useConnection()
   const keymap   = useKeymap()
   const yank     = useYank()
   const renderer = useRenderer()
@@ -59,6 +59,7 @@ export function SqlBuffer(props: BufferProps) {
   const [running,     setRunning]     = createSignal(false)
   const [editing,     setEditing]     = createSignal(false)
   const [completions, setCompletions] = createSignal<string[]>([])
+  const [loadedFor, setLoadedFor] = createSignal<string | null>(null)
 
   // Watch for snippet loads from the sidebar
   createEffect(() => {
@@ -69,6 +70,16 @@ export function SqlBuffer(props: BufferProps) {
     }
   })
 
+  createEffect(() => {
+    const id = connCtx.active()?.id ?? null
+    if (id !== loadedFor()) {
+      setLoadedFor(id)
+      setResults([])
+      setError(null)
+      setCompletions([])
+    }
+  })
+
   function handleModeChange(m: "normal" | "insert" | "visual") {
     setEditing(m === "insert" || m === "visual")
   }
@@ -76,11 +87,10 @@ export function SqlBuffer(props: BufferProps) {
   const projectRef = () => String(props.meta.data?.["project"] ?? "")
 
   onMount(async () => {
-    const token = auth.token()
-    const ref = projectRef()
-    if (!token || !ref) return
+    const conn = connCtx.active()
+    if (!conn) return
     try {
-      const [tables] = await Promise.all([listTables(token, ref)])
+      const [tables] = await Promise.all([listTables(conn.driver)])
       setCompletions(tables.flatMap(t => [t.name, `${t.schema}.${t.name}`]))
     } catch {}
   })
@@ -95,12 +105,11 @@ export function SqlBuffer(props: BufferProps) {
   })
 
   async function execute() {
-    const token = auth.token()
-    const ref = projectRef()
-    if (!token || !ref) { setError("No project — open via :tables <project>"); return }
+    const conn = connCtx.active()
+    if (!conn) { setError("No database connected — use :connect"); return }
     setRunning(true); setError(null)
     try {
-      const result = await runQuery(token, ref, query())
+      const result = await runQuery(conn.driver, query())
       if (result.error) setError(result.error)
       else setResults(result.rows)
     } finally { setRunning(false) }
@@ -129,7 +138,7 @@ export function SqlBuffer(props: BufferProps) {
       {/* Header */}
       <box paddingLeft={1} height={1} backgroundColor={COLORS.overlay} flexDirection="row">
         <text fg={COLORS.subtext} attributes={1}>SQL  </text>
-        <text fg={COLORS.muted}>{projectRef() || "no project"}  </text>
+        <text fg={COLORS.muted}>{projectRef() || connCtx.active()?.label || "no connection"}  </text>
         <text fg={COLORS.muted}>[i: edit | enter/r: run | space e: snippets | yy: yank]</text>
       </box>
 

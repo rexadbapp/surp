@@ -1,6 +1,7 @@
 import { createMemo, For, Show } from "solid-js"
 import { useBuffers } from "../context/buffers"
 import { COLORS } from "./colors"
+import { hoverProps, isHovered } from "./hover"
 
 const MAX_NAME = 18
 const PAD      = 2   // paddingLeft + paddingRight per tab
@@ -88,16 +89,18 @@ export function TabLine(props: TabLineProps) {
       <For each={visible()}>
         {(buf) => {
           const isActive = () => buffers.active() === buf.id
+          const hovered  = () => isHovered(`tab-${buf.id}`)
           return (
             <box
               width={buf.tabW}
               height={1}
               paddingLeft={1}
               paddingRight={1}
-              backgroundColor={isActive() ? COLORS.background : COLORS.surface}
+              backgroundColor={isActive() ? COLORS.background : hovered() ? COLORS.overlay : COLORS.surface}
+              {...hoverProps(`tab-${buf.id}`, `Switch to ${buf.title}`)}
               onMouseUp={() => buffers.focus(buf.id)}
             >
-              <text fg={isActive() ? COLORS.text : COLORS.subtext} attributes={isActive() ? 1 : 0}>
+              <text fg={isActive() ? COLORS.text : COLORS.subtext} attributes={isActive() || hovered() ? 1 : 0}>
                 {buf.name}
               </text>
             </box>

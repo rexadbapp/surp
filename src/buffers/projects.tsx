@@ -1,5 +1,6 @@
 import { createSignal, For, Show, onMount } from "solid-js"
 import { useAuth } from "../context/auth"
+import { useConnection } from "../context/connection"
 import { useBuffers } from "../context/buffers"
 import { useKeymap } from "../context/keymap"
 import { useYank } from "../context/yank"
@@ -18,6 +19,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export function ProjectsBuffer(props: BufferProps) {
   const auth = useAuth()
+  const connCtx = useConnection()
   const buffers = useBuffers()
   const keymap = useKeymap()
   const yank = useYank()
@@ -65,10 +67,15 @@ export function ProjectsBuffer(props: BufferProps) {
     const p = projects()[cursor()]
     if (p) yank.yank(`${p.name} ${p.id}`, "project")
   })
+  async function selectProject(p: Project) {
+    await connCtx.openProject({ ref: p.id, name: p.name })
+    buffers.open("home", { project: p.id, projectName: p.name }, p.name)
+  }
+
   keymap.onAction("select", () => {
     if (!props.focused) return
     const p = projects()[cursor()]
-    if (p) buffers.open("home", { project: p.id, projectName: p.name }, p.name)
+    if (p) void selectProject(p)
   })
   keymap.onAction("refresh", () => {
     if (!props.focused) return
@@ -117,7 +124,7 @@ export function ProjectsBuffer(props: BufferProps) {
                 paddingRight={1}
                 height={1}
                 backgroundColor={active() ? COLORS.overlay : COLORS.background}
-                onMouseUp={() => { setCursor(i()); buffers.open("home", { project: project.id, projectName: project.name }, project.name) }}
+                onMouseUp={() => { setCursor(i()); if (project) void selectProject(project) }}
               >
                 <text fg={active() ? COLORS.blue : COLORS.text} width={30}>
                   {active() ? "▶ " : "  "}{project.name}

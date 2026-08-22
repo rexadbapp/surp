@@ -3,12 +3,15 @@ import type { MouseEvent, KeyEvent } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
 import type { BufferType } from "../buffers/types"
 import { useAuth } from "../context/auth"
+import { useConnection } from "../context/connection"
 import { useBuffers } from "../context/buffers"
 import { useKeymap } from "../context/keymap"
 import { useYank } from "../context/yank"
 import { listTables, listSnippets, type Table } from "../auth/api"
+import type { ActiveConnection } from "../connections/types"
 import { readLocalSnippets, saveLocalSnippet, deleteLocalSnippet } from "../lib/local-snippets"
 import { COLORS } from "../ui/colors"
+import { hoverProps, isHovered } from "../ui/hover"
 
 interface SidebarProps {
   projectRef: string | null
@@ -36,6 +39,7 @@ const tableCache = new Map<string, Table[]>()
 
 export function Sidebar(props: SidebarProps) {
   const auth    = useAuth()
+  const connCtx = useConnection()
   const buffers = useBuffers()
   const keymap  = useKeymap()
   const yank    = useYank()
@@ -59,24 +63,26 @@ export function Sidebar(props: SidebarProps) {
 
   const isSql = () => props.activeBufferType === "sql"
   const snippetRef = () => props.projectRef ?? "default"
+  /** Cache key: project ref when known, else the active connection id */
+  const tableKey = () => props.projectRef ?? connCtx.active()?.id ?? null
 
-  async function fetchTables(token: string, ref: string) {
+  async function fetchTables(conn: ActiveConnection, key: string) {
     setLoading(true)
     try {
-      const list = await listTables(token, ref)
+      const list = await listTables(conn.driver)
       setTables(list)
-      tableCache.set(ref, list)
+      tableCache.set(key, list)
     } catch {}
     finally { setLoading(false) }
   }
 
   createEffect(() => {
-    const ref = props.projectRef
-    if (!ref) { setTables([]); return }
-    const cached = tableCache.get(ref)
+    const conn = connCtx.active()
+    const key = props.projectRef ?? conn?.id
+    if (!key || !conn) { setTables([]); return }
+    const cached = tableCache.get(key)
     if (cached) { setTables(cached); return }
-    const token = auth.token()
-    if (token) void fetchTables(token, ref)
+    void fetchTables(conn, key)
   })
 
   // ── snippet logic ───────────────────────────────────────────────────────────
@@ -89,10 +95,12 @@ export function Sidebar(props: SidebarProps) {
 
   async function loadSnippets() {
     const token = auth.token()
+    const conn = connCtx.active()
+    const remoteSnippets = token && conn?.supabase
     setSnippetLoading(true)
     try {
       const local = readLocalSnippets(snippetRef())
-      const remote = token ? await listSnippets(token, snippetRef()).catch(() => []) : []
+      const remote = remoteSnippets ? await listSnippets(token, snippetRef()).catch(() => []) : []
       setSnippets(mergeSnippets(local, remote))
     } catch { setSnippets([]) }
     setSnippetLoading(false)
@@ -177,9 +185,8 @@ export function Sidebar(props: SidebarProps) {
       if (s) loadSnippetToEditor(s)
     } else {
       const t = tables()[cursor()]
-      const ref = props.projectRef
-      if (t && ref) {
-        buffers.open("table", { project: ref, schema: t.schema, table: t.name }, `${t.schema}.${t.name}`)
+      if (t) {
+        buffers.open("table", { project: props.projectRef ?? "", schema: t.schema, table: t.name }, `${t.schema}.${t.name}`)
       }
     }
   })
@@ -200,15 +207,12 @@ export function Sidebar(props: SidebarProps) {
   })
   keymap.onAction("refresh", () => {
     if (!props.focused) return
-    const ref = props.projectRef
-    if (!ref) return
-    if (isSql()) {
-      void loadSnippets()
-    } else {
-      tableCache.delete(ref)
-      const token = auth.token()
-      if (token) void fetchTables(token, ref)
-    }
+    if (isSql()) { void loadSnippets(); return }
+    const conn = connCtx.active()
+    const key = tableKey()
+    if (!key || !conn) return
+    tableCache.delete(key)
+    void fetchTables(conn, key)
   })
   keymap.onAction("delete", () => {
     if (!props.focused || !isSql()) return
@@ -242,12 +246,14 @@ export function Sidebar(props: SidebarProps) {
         <box flexDirection="column" flexGrow={1} paddingLeft={1} overflow={"hidden" as any}>
           <For each={snippets()}>
             {(s, i) => {
-              const sel = () => props.focused && i() === snippetIdx()
+              const sel     = () => props.focused && i() === snippetIdx()
+              const hovered = () => isHovered(`sidebar-snippet-${i()}`)
               const mark = s.source === "local" ? "★" : "↓"
               return (
                 <box
                   height={1}
-                  backgroundColor={sel() ? COLORS.overlay : COLORS.surface}
+                  backgroundColor={sel() ? COLORS.overlay : hovered() ? COLORS.overlay : COLORS.surface}
+                  {...hoverProps(`sidebar-snippet-${i()}`, s.sql.split("\n")[0].slice(0, 60) || "empty snippet")}
                   onMouseUp={() => { setSnippetIdx(i()); loadSnippetToEditor(s) }}
                 >
                   <text fg={sel() ? COLORS.blue : s.source === "local" ? COLORS.text : COLORS.muted}>
@@ -279,23 +285,24 @@ export function Sidebar(props: SidebarProps) {
         <Show when={loading()}>
           <box paddingLeft={2}><text fg={COLORS.muted}>Loading…</text></box>
         </Show>
-        <Show when={!props.projectRef && !loading()}>
+        <Show when={!props.projectRef && !connCtx.active() && !loading()}>
           <box paddingLeft={2} paddingTop={1}>
-            <text fg={COLORS.muted}>No project open</text>
+            <text fg={COLORS.muted}>No connection — :connect or pick a project</text>
           </box>
         </Show>
         <For each={tables()}>
           {(table, i) => {
             const active = () => props.focused && i() === cursor()
+            const hovered = () => isHovered(`sidebar-table-${i()}`)
             return (
               <box
                 height={1}
                 paddingLeft={1}
-                backgroundColor={active() ? COLORS.overlay : COLORS.surface}
+                backgroundColor={active() ? COLORS.overlay : hovered() ? COLORS.background : COLORS.surface}
+                {...hoverProps(`sidebar-table-${i()}`)}
                 onMouseUp={() => {
                   setCursor(i())
-                  const ref = props.projectRef
-                  if (ref) buffers.open("table", { project: ref, schema: table.schema, table: table.name }, `${table.schema}.${table.name}`)
+                  buffers.open("table", { project: props.projectRef ?? "", schema: table.schema, table: table.name }, `${table.schema}.${table.name}`)
                 }}
                 onMouseScroll={onScroll}
               >

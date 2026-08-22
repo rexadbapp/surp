@@ -1,6 +1,7 @@
 import { createMemo, createSignal, Show, onMount, onCleanup } from "solid-js"
 import { useMode } from "../context/mode"
 import { useBuffers } from "../context/buffers"
+import { useConnection } from "../context/connection"
 import { useKeymap } from "../context/keymap"
 import { useYank } from "../context/yank"
 import { COLORS } from "./colors"
@@ -44,6 +45,7 @@ interface StatusBarProps { width: number }
 export function StatusBar(props: StatusBarProps) {
   const mode    = useMode()
   const buffers = useBuffers()
+  const connCtx = useConnection()
   const keymap  = useKeymap()
   const yank    = useYank()
 
@@ -95,6 +97,15 @@ export function StatusBar(props: StatusBarProps) {
       <box paddingLeft={1} paddingRight={1} backgroundColor={COLORS.overlay}>
         <text fg={COLORS.text}> {branch()}</text>
       </box>
+      {/* Separator branch → connection */}
+      <Show when={connCtx.active()}>
+        <box backgroundColor={COLORS.background}><text fg={COLORS.overlay}>{PL_RIGHT}</text></box>
+        <box paddingLeft={1} paddingRight={1} backgroundColor={COLORS.background}>
+          <text fg={connCtx.active()!.kind === "postgres" ? COLORS.blue : COLORS.green}>
+            ● {trunc(connCtx.active()!.label, 24)}
+          </text>
+        </box>
+      </Show>
       {/* Separator branch → buffer name */}
       <box backgroundColor={COLORS.background}><text fg={COLORS.overlay}>{PL_RIGHT}</text></box>
 

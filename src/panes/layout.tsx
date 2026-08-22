@@ -5,6 +5,7 @@ import type { MouseEvent } from "@opentui/core"
 import { Pane } from "./pane"
 import { Sidebar } from "./sidebar"
 import { TabLine } from "../ui/tabline"
+import { sidebarOpen, setSidebarOpen, sidebarFocused, setSidebarFocused } from "./sidebar-state"
 
 interface LayoutProps {
   width: number
@@ -23,8 +24,7 @@ export function Layout(props: LayoutProps) {
   const [split, setSplit] = createSignal<Split | null>(null)
   const [focusedPane, setFocusedPane] = createSignal<0 | 1>(0)
   const [secondBuf, setSecondBuf] = createSignal<string | null>(null)
-  const [showSidebar, setShowSidebar] = createSignal(false)
-  const [sidebarFocused, setSidebarFocused] = createSignal(false)
+  const showSidebar = sidebarOpen
   const [sidebarW, setSidebarW] = createSignal(28)
   let isResizing = false
 
@@ -43,10 +43,10 @@ export function Layout(props: LayoutProps) {
 
   keymap.onAction("toggle_sidebar", () => {
     if (!showSidebar()) {
-      setShowSidebar(true)
+      setSidebarOpen(true)
       setSidebarFocused(true)
     } else if (sidebarFocused()) {
-      setShowSidebar(false)
+      setSidebarOpen(false)
       setSidebarFocused(false)
     } else {
       setSidebarFocused(true)

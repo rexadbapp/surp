@@ -1,11 +1,13 @@
 import { registerCommand } from "./registry"
 import type { BuffersContextValue } from "../context/buffers"
 import type { AuthContextValue } from "../context/auth"
+import type { ConnectionContextValue } from "../context/connection"
 import type { ModeContextValue } from "../context/mode"
 
 let _buffers: BuffersContextValue | null = null
 let _auth: AuthContextValue | null = null
 let _mode: ModeContextValue | null = null
+let _conn: ConnectionContextValue | null = null
 let _destroy: (() => void) | null = null
 
 export function setDestroyer(fn: () => void) {
@@ -16,10 +18,12 @@ export function initCommands(
   buffers: BuffersContextValue,
   auth: AuthContextValue,
   mode: ModeContextValue,
+  conn?: ConnectionContextValue,
 ) {
   _buffers = buffers
   _auth = auth
   _mode = mode
+  _conn = conn ?? null
   registerAll()
 }
 
@@ -38,6 +42,34 @@ function m(): ModeContextValue {
   return _mode
 }
 
+function c(): ConnectionContextValue | null {
+  return _conn
+}
+
+/**
+ * Resolve which database a command should act on.
+ * - explicit supabase ref arg → activate/switch to that project
+ * - otherwise fall back to the active connection (postgres or supabase)
+ * Returns null when nothing usable is available.
+ */
+async function resolveTarget(refArg: string): Promise<string | null> {
+  const connCtx = c()
+  const cur = connCtx?.active()
+  const ref = refArg || cur?.supabase?.ref || ""
+  if (!ref) return cur ? "" : null
+  if (cur?.supabase?.ref !== ref) {
+    if (!connCtx) return null
+    const ok = await connCtx.openProject({ ref })
+    if (!ok) return null
+  }
+  return ref
+}
+
+/** Open the connections manager when a command has nothing to act on */
+function openConnections() {
+  b().open("connections")
+}
+
 function registerAll() {
   registerCommand({
     name: "dashboard",
@@ -54,33 +86,44 @@ function registerAll() {
 
   registerCommand({
     name: "home",
-    description: "Open project home page",
-    execute: (args) => {
+    alias: ["start"],
+    description: "Go to the home page (connections).  `home <ref>` opens a supabase project home",
+    execute: async (args) => {
+      const ref = args.trim()
+      if (!ref) {
+        b().open("dashboard")
+        return
+      }
       const active = b().activeBuffer()
-      const project = args.trim() || (active?.data?.["project"] ?? "")
-      const projectName = active?.data?.["projectName"] ?? project
-      if (project) b().open("home", { project, projectName }, projectName)
+      const projectName = active?.data?.["projectName"] ?? ref
+      const target = await resolveTarget(ref)
+      if (target === null) { openConnections(); return }
+      if (target) b().open("home", { project: target, projectName }, projectName || target)
     },
   })
 
   registerCommand({
     name: "tables",
-    description: "Open tables browser for a project",
-    execute: (args) => {
+    description: "Open tables browser for the active connection (or a supabase ref)",
+    execute: async (args) => {
       const active = b().activeBuffer()
       const [project, schema] = args.split(/\s+/)
-      const ref = project || (active?.data?.["project"] ?? "")
       const sch = schema || (active?.data?.["schema"] ?? "public")
-      if (ref) b().open("tables", { project: ref, schema: sch })
+      const target = await resolveTarget(project ?? "")
+      if (target === null) { openConnections(); return }
+      if (target) b().open("tables", { project: target, schema: sch })
+      else b().open("tables", { schema: sch })
     },
   })
 
   registerCommand({
     name: "sql",
-    description: "Open SQL editor",
-    execute: (args) => {
+    description: "Open SQL editor for the active connection",
+    execute: async (args) => {
       const [project] = args.split(/\s+/)
-      b().open("sql", project ? { project } : undefined)
+      const target = project ? await resolveTarget(project) : (c()?.active() ? "" : null)
+      if (target === null) { openConnections(); return }
+      b().open("sql", target ? { project: target } : undefined)
     },
   })
 
@@ -108,6 +151,46 @@ function registerAll() {
     name: "logout",
     description: "Logout from Supabase",
     execute: async () => { await a().logout() },
+  })
+
+  registerCommand({
+    name: "connect",
+    description: "Connect to a database.  `connect postgres://user@host/db`,  `connect <saved-name>`",
+    execute: async (args) => {
+      const connCtx = c()
+      if (!connCtx) return
+      const input = args.trim()
+      if (!input) { b().open("connections"); return }
+      if (/^postgres(ql)?:\/\//i.test(input)) {
+        const ok = await connCtx.connectPostgresUrl(input)
+        if (!ok) b().open("connections")
+        return
+      }
+      const ok = await connCtx.connectSavedProfile(input)
+      if (!ok) b().open("connections")
+    },
+  })
+
+  registerCommand({
+    name: "connections",
+    alias: ["conn", "dbs"],
+    description: "Manage database connections (saved profiles, new postgres connection)",
+    execute: () => { b().open("connections") },
+  })
+
+  registerCommand({
+    name: "import",
+    description: "Import Supabase projects as home-page connections (across accounts)",
+    execute: () => { b().open("import") },
+  })
+
+  registerCommand({
+    name: "disconnect",
+    alias: ["connoff"],
+    description: "Disconnect from the active database",
+    execute: async () => {
+      await c()?.disconnect()
+    },
   })
 
   registerCommand({
@@ -150,13 +233,18 @@ function registerAll() {
 
   registerCommand({
     name: "schema",
-    description: "Open schema visualizer for the current project",
-    execute: (args) => {
+    description: "Open schema visualizer.  `schema <name>` or `schema <ref> <name>`",
+    execute: async (args) => {
       const active = b().activeBuffer()
-      const parts = args.trim().split(/\s+/)
-      const project = parts[0] || String(active?.data?.["project"] ?? "")
-      const schema  = parts[1] || String(active?.data?.["schema"]  ?? "public")
-      if (project) b().open("schema", { project, schema }, `Schema: ${schema}`)
+      const parts = args.trim().split(/\s+/).filter(Boolean)
+      const target = parts.length >= 2
+        ? await resolveTarget(parts[0]!)
+        : await resolveTarget("")
+      if (target === null) { openConnections(); return }
+      const schema = parts.length >= 2
+        ? parts[1]!
+        : (parts[0] ?? String(active?.data?.["schema"] ?? "public"))
+      b().open("schema", { ...(target ? { project: target } : {}), schema }, `Schema: ${schema}`)
     },
   })
 
@@ -164,10 +252,12 @@ function registerAll() {
     name: "functions",
     alias: ["fns"],
     description: "Open edge functions list for a project",
-    execute: (args) => {
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
-      if (project) b().open("functions", { project })
+      const target = await resolveTarget(project)
+      if (target === null) { openConnections(); return }
+      if (target) b().open("functions", { project: target })
     },
   })
 
@@ -175,21 +265,25 @@ function registerAll() {
     name: "create-function",
     alias: ["newfn"],
     description: "Create a new edge function for a project",
-    execute: (args) => {
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
-      if (project) b().open("add-function", { project })
+      const target = await resolveTarget(project)
+      if (target === null) { openConnections(); return }
+      if (target) b().open("add-function", { project: target })
     },
   })
 
   registerCommand({
     name: "storage",
     alias: ["st"],
-    description: "Open storage buckets for a project",
-    execute: (args) => {
+    description: "Open storage buckets for the active connection",
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
-      if (project) b().open("storage", { project }, `Storage: ${project}`)
+      const target = await resolveTarget(project)
+      if (target === null) { openConnections(); return }
+      b().open("storage", target ? { project: target } : undefined, target ? `Storage: ${target}` : "Storage")
     },
   })
 
@@ -197,30 +291,36 @@ function registerAll() {
     name: "create-bucket",
     alias: ["newbucket"],
     description: "Create a new storage bucket",
-    execute: (args) => {
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
-      if (project) b().open("create-bucket", { project })
+      const target = await resolveTarget(project)
+      if (target === null || !c()?.active()) { openConnections(); return }
+      b().open("create-bucket", target ? { project: target } : undefined)
     },
   })
 
   registerCommand({
     name: "logs",
     description: "Open logs viewer for a project",
-    execute: (args) => {
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
-      if (project) b().open("logs", { project }, `Logs: ${project}`)
+      const target = await resolveTarget(project)
+      if (target === null) { openConnections(); return }
+      if (target) b().open("logs", { project: target }, `Logs: ${target}`)
     },
   })
 
   registerCommand({
     name: "lint",
-    description: "Run Supabase linter (splinter) on a project",
-    execute: (args) => {
+    description: "Run SQL linter (splinter) on the active database",
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
-      b().open("lint", project ? { project } : undefined)
+      const target = await resolveTarget(project)
+      if (target === null) { openConnections(); return }
+      b().open("lint", target ? { project: target } : undefined)
     },
   })
 
@@ -228,11 +328,13 @@ function registerAll() {
     name: "settings",
     alias: ["config"],
     description: "Open project settings / configuration",
-    execute: (args) => {
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
       const projectName = active?.data?.["projectName"] ?? project
-      if (project) b().open("settings", { project, projectName }, projectName)
+      const target = await resolveTarget(project)
+      if (target === null) { openConnections(); return }
+      if (target) b().open("settings", { project: target, projectName }, projectName || target)
     },
   })
 
@@ -257,27 +359,30 @@ function registerAll() {
     name: "auth-config",
     alias: ["authcfg"],
     description: "Open Supabase Auth configuration for a project",
-    execute: (args) => {
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
-      if (project) b().open("auth-config", { project })
+      const target = await resolveTarget(project)
+      if (target === null) { openConnections(); return }
+      if (target) b().open("auth-config", { project: target })
     },
   })
 
   registerCommand({
     name: "users",
     alias: ["authusers", "ausers", "auser"],
-    description: "List/detail auth users for a project.  `users <project>` list,  `users <project> <userId>` detail",
-    execute: (args) => {
+    description: "List/detail auth users.  `users` on active connection,  `users <userId>` detail",
+    execute: async (args) => {
       const active = b().activeBuffer()
       const parts = args.trim().split(/\s+/)
-      const project = parts[0] || (active?.data?.["project"] ?? "")
-      const userId = parts[1]
-      if (!project) return
+      const project = parts.length > 1 ? parts[0]! : ""
+      const userId = parts.length > 1 ? parts[1] : parts[0]
+      const target = await resolveTarget(project)
+      if (target === null || !c()?.active()) { openConnections(); return }
       if (userId) {
-        b().open("auth-user", { project, userId }, `User: ${userId.slice(0, 8)}`)
+        b().open("auth-user", { project: target, userId }, `User: ${userId.slice(0, 8)}`)
       } else {
-        b().open("users", { project })
+        b().open("users", { project: target })
       }
     },
   })
@@ -286,10 +391,12 @@ function registerAll() {
     name: "project-config",
     alias: ["pconfig", "cfg"],
     description: "Show project configuration",
-    execute: (args) => {
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
-      if (project) b().open("project-config", { project })
+      const target = await resolveTarget(project)
+      if (target === null) { openConnections(); return }
+      if (target) b().open("project-config", { project: target })
     },
   })
 
@@ -297,10 +404,12 @@ function registerAll() {
     name: "providers",
     alias: ["authproviders"],
     description: "Show auth providers configuration for a project",
-    execute: (args) => {
+    execute: async (args) => {
       const active = b().activeBuffer()
       const project = args.trim() || (active?.data?.["project"] ?? "")
-      if (project) b().open("providers", { project })
+      const target = await resolveTarget(project)
+      if (target === null) { openConnections(); return }
+      if (target) b().open("providers", { project: target })
     },
   })
 

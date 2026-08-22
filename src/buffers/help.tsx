@@ -24,15 +24,29 @@ const SECTIONS = [
   {
     title: "Commands (press `:` to open)",
     items: [
-      [":projects", "Open projects list"],
-      [":tables <project>", "Open table browser"],
-      [":sql [project]", "Open SQL editor"],
+      [":connect <url|name>", "Connect to postgres (DSN or saved profile)"],
+      [":connections", "Manage saved database connections"],
+      [":import", "Import Supabase projects (multi-account)"],
+      [":disconnect", "Disconnect from the active database"],
+      [":projects", "Open Supabase projects list"],
+      [":tables [ref]", "Open table browser"],
+      [":sql", "Open SQL editor"],
       [":theme", "Pick a color theme"],
       [":cursor", "Pick a cursor style"],
       [":login", "Login with personal access token"],
       [":logout", "Logout"],
       [":help / :h", "Show this help"],
       [":q / :quit", "Quit surp"],
+    ],
+  },
+  {
+    title: "Postgres connections",
+    items: [
+      [":connect postgres://u:p@host/db", "Quick-connect via DSN"],
+      ["u", "Paste connection string (in :connections)"],
+      ["?sslmode=disable", "Append to DSN to disable SSL"],
+      ["x", "Disconnect (in :connections buffer)"],
+      ["d", "Delete saved profile (in :connections buffer)"],
     ],
   },
   {

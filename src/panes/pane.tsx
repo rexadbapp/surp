@@ -1,5 +1,6 @@
 import { createMemo, For, Show } from "solid-js"
 import { useBuffers } from "../context/buffers"
+import { useConnection } from "../context/connection"
 import { renderBuffer } from "../buffers/registry"
 import { COLORS } from "../ui/colors"
 
@@ -92,8 +93,34 @@ interface PaneProps {
   height: number
 }
 
+/**
+ * Tab-less placeholder shown when a connection is live but no buffer is open.
+ * Not a real buffer — it never appears in the tab line.
+ */
+function EmptyExplorerPrompt(props: { width: number; height: number }) {
+  return (
+    <box
+      flexDirection="column"
+      width={props.width}
+      height={props.height}
+      backgroundColor={COLORS.background}
+      alignItems="center"
+      justifyContent="center"
+    >
+      <box height={1}>
+        <text fg={COLORS.subtext}>← pick a table from the explorer</text>
+      </box>
+      <box height={1} />
+      <box height={1} flexDirection="row">
+        <text fg={COLORS.muted}>:sql editor  ·  n new connection  ·  u paste url  ·  :help</text>
+      </box>
+    </box>
+  )
+}
+
 export function Pane(props: PaneProps) {
   const buffers = useBuffers()
+  const connCtx = useConnection()
 
   const meta = createMemo(() => {
     if (!props.bufferId) return null
@@ -103,7 +130,14 @@ export function Pane(props: PaneProps) {
   return (
     <Show
       when={meta()}
-      fallback={<Splash width={props.width} height={props.height} />}
+      fallback={
+        <Show
+          when={connCtx.active()}
+          fallback={<Splash width={props.width} height={props.height} />}
+        >
+          <EmptyExplorerPrompt width={props.width} height={props.height} />
+        </Show>
+      }
     >
       {(m) => (
         <box

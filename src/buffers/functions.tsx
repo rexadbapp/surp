@@ -6,6 +6,7 @@ import { useYank } from "../context/yank"
 import { listFunctions, type EdgeFunction } from "../auth/api"
 import type { BufferProps } from "./types"
 import { COLORS } from "../ui/colors"
+import { hoverProps, isHovered } from "../ui/hover"
 
 const fnCache = new Map<string, EdgeFunction[]>()
 
@@ -127,14 +128,17 @@ export function FunctionsBuffer(props: BufferProps) {
       <Show when={!loading()}>
         <For each={fns()}>
           {(fn, i) => {
+            const id = `fn-row-${props.meta.id}-${i()}`
             const active = () => props.focused && i() === cursor()
+            const hovered = () => isHovered(id)
             return (
               <box
                 flexDirection="row"
                 paddingLeft={1}
                 paddingRight={1}
                 height={1}
-                backgroundColor={active() ? COLORS.overlay : COLORS.background}
+                backgroundColor={active() ? COLORS.overlay : hovered() ? COLORS.surface : COLORS.background}
+                {...hoverProps(id, `${fn.slug} · ${fn.status} · ↵ open`)}
                 onMouseUp={() => { setCursor(i()); buffers.open("function", { project: projectRef(), slug: fn.slug }, `fn:${fn.slug}`) }}
               >
                 <text fg={active() ? COLORS.blue : COLORS.text} width={28}>
