@@ -1,6 +1,8 @@
 # surp
 
-`nvim`-style terminal client for Supabase — manage projects, tables, SQL, edge functions, storage, auth users, and more from your terminal. Free, open source, no account required.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Open Source](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://github.com/rexadbapp/surp)
+
+**Open source** `nvim`-style terminal client for Supabase — manage projects, tables, SQL, edge functions, storage, auth users, and more from your terminal. Free, no account required. Source on [GitHub](https://github.com/rexadbapp/surp) under the [MIT](LICENSE) license — contributions welcome.
 
 ## Install
 
@@ -86,6 +88,10 @@ bun run build      # build a binary for your platform (dist/)
 
 Maintainers: `bun run scripts/release.mjs` builds all platforms, uploads to GitHub Releases via `gh`, and offers to publish the npm package. The script prompts for the version and will offer to bump `package.json` + `cli/package.json` if you forgot.
 
+## Open Source
+
+surp is fully open source under the [MIT](LICENSE) license. Source, issues and pull requests live on [GitHub](https://github.com/rexadbapp/surp) — contributions welcome.
+
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — see [LICENSE](LICENSE) for details.

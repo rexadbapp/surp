@@ -1,6 +1,8 @@
 # surp
 
-`nvim`-style terminal client for Supabase — manage projects, tables, SQL, edge functions, storage, auth users, and more from your terminal. Free, no account required.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/rexadbapp/surp/blob/main/LICENSE) [![Open Source](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://github.com/rexadbapp/surp)
+
+**Open source** `nvim`-style terminal client for Supabase — manage projects, tables, SQL, edge functions, storage, auth users, and more from your terminal. Free, no account required. Source on [GitHub](https://github.com/rexadbapp/surp) under the [MIT](https://github.com/rexadbapp/surp/blob/main/LICENSE) license.
 
 > The precompiled binary is downloaded from GitHub Releases at install time. No source code is shipped in this package.
 
@@ -52,3 +54,7 @@ Inside surp, run `:update` to fetch the latest release from GitHub Releases and 
 ## Releases
 
 Binaries for every platform are published on the [GitHub Releases](https://github.com/rexadbapp/surp/releases) page.
+
+## License
+
+[MIT](https://github.com/rexadbapp/surp/blob/main/LICENSE) — open source, see GitHub for source and contributions.
