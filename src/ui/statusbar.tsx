@@ -26,6 +26,7 @@ const BUF_ICON: Record<string, string> = {
   tables:   "≡",
   table:    "⊞",
   sql:      "λ",
+  agent:    "✦",
   login:    "⎆",
   account:  "⚙",
   help:     "?",

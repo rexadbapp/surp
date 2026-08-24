@@ -1,5 +1,6 @@
 import { createContext, useContext, createSignal, type Accessor, type ParentProps } from "solid-js"
 import { createStore, produce } from "solid-js/store"
+import { useMode } from "./mode"
 import { type BufferMeta, type BufferType, newBufferId } from "../buffers/types"
 import { clearHover } from "../ui/hover"
 
@@ -27,6 +28,7 @@ function defaultTitle(type: BufferType, data?: Record<string, string>): string {
     case "tables": return data?.schema ? `${data.project}/${data.schema}` : data?.project ?? "Tables"
     case "table": return data?.table ? `${data.schema ?? "public"}.${data.table}` : "Table"
     case "sql": return data?.project ? `SQL:${data.project}` : "SQL"
+    case "agent": return "AI"
     case "logs": return "Logs"
     case "login": return "Login"
     case "account": return "About"
@@ -51,13 +53,18 @@ function defaultTitle(type: BufferType, data?: Record<string, string>): string {
 }
 
 export function BuffersProvider(props: ParentProps) {
+  const mode = useMode()
   const [list, setList] = createStore<BufferMeta[]>([])
   const [active, setActive] = createSignal<string | null>(null)
 
   // Every buffer activation change drops hover state — otherwise a tooltip
   // from the previous tab could appear after switching with a stationary cursor.
+  // It also snaps the app back to normal mode: an insert surface (e.g. the AI
+  // composer) must not leave the global keyboard stuck after its buffer is
+  // closed or switched away from.
   const activate = (id: string | null) => {
     clearHover()
+    if (!mode.is("normal")) mode.enterNormal()
     setActive(id)
   }
 

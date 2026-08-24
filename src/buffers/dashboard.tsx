@@ -4,6 +4,7 @@ import type { KeyEvent } from "@opentui/core"
 import { useConnection } from "../context/connection"
 import { useBuffers } from "../context/buffers"
 import { useKeymap } from "../context/keymap"
+import { useMode } from "../context/mode"
 import type { BufferProps } from "./types"
 import { COLORS } from "../ui/colors"
 import { hoverProps, isHovered } from "../ui/hover"
@@ -37,6 +38,7 @@ export function DashboardBuffer(props: BufferProps) {
   const connCtx = useConnection()
   const buffers = useBuffers()
   const keymap  = useKeymap()
+  const mode    = useMode()
   const renderer = useRenderer()
 
   const [cursor, setCursor] = createSignal(0)
@@ -105,7 +107,7 @@ export function DashboardBuffer(props: BufferProps) {
   onMount(() => {
     const kh = renderer.keyInput
     function onKey(e: KeyEvent) {
-      if (!props.focused || e.ctrl || e.meta || e.name.length !== 1) return
+      if (!props.focused || !mode.is("normal") || e.ctrl || e.meta || e.name.length !== 1) return
       if (e.name === "n") openNew()
       else if (e.name === "u") openPasteUrl()
       else if (e.name === "i") openImport()

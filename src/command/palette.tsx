@@ -1,6 +1,6 @@
-import { createSignal, createMemo, For, Show, onMount, onCleanup } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import { useRenderer } from "@opentui/solid"
-import type { KeyEvent } from "@opentui/core"
+import type { KeyEvent, PasteEvent } from "@opentui/core"
 import { useMode } from "../context/mode"
 import { filterCommands, executeCommandLine } from "./registry"
 import { COLORS } from "../ui/colors"
@@ -13,38 +13,40 @@ interface CommandPaletteProps {
 const DIALOG_W = 60
 
 function isPrintable(event: KeyEvent): boolean {
+  if (event.name === "space") return !event.ctrl && !event.meta
   return event.name.length === 1 && !event.ctrl && !event.meta
 }
 
 function toChar(event: KeyEvent): string {
+  if (event.name === "space") return " "
   if (event.shift && event.name === ";") return ":"
   if (event.shift && event.name.length === 1) return event.name.toUpperCase()
   return event.name
 }
 
+// ── module-level palette state ────────────────────────────────────────────────
+// The palette's keyboard controller lives here, NOT in the component. History:
+// per-mount listeners piled up as hidden zombie instances (the renderer hides
+// the subtree without running cleanups), the bottom-most listener monopolized
+// all keystrokes via stopPropagation, and its reactive subscriptions died on
+// hide — so stale command lists got executed. One permanent listener with
+// plain module signals sidesteps the entire lifecycle mess.
+const [input, setInput] = createSignal("")
+const [cursor, setCursor] = createSignal(0)
+
+function resetPalette() {
+  setInput("")
+  setCursor(0)
+}
+
+let installed = false
+
 export function CommandPalette(props: CommandPaletteProps) {
   const mode = useMode()
   const renderer = useRenderer()
-  const [input, setInput] = createSignal("")
-  const [cursor, setCursor] = createSignal(0)
 
-  const suggestions = createMemo(() => filterCommands(input()))
-  const selected = createMemo(() => Math.min(cursor(), Math.max(0, suggestions().length - 1)))
-
-  function reset() {
-    setInput("")
-    setCursor(0)
-  }
-
-  function execute() {
-    const vis = visibleSuggestions()
-    const line = vis.length > 0 ? vis[selected()]!.name : input().trim()
-    mode.enterNormal()
-    reset()
-    if (line) void executeCommandLine(line)
-  }
-
-  onMount(() => {
+  if (!installed) {
+    installed = true
     const kh = renderer.keyInput
 
     function onKeypress(event: KeyEvent) {
@@ -54,7 +56,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 
       if (event.name === "escape") {
         mode.enterNormal()
-        reset()
+        resetPalette()
         return
       }
       if (event.name === "return" || event.name === "enter") {
@@ -62,7 +64,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         return
       }
       if (event.name === "tab") {
-        const s = suggestions()[selected()]
+        const s = currentSuggestions()[cursor()]
         if (s) setInput(s.name)
         return
       }
@@ -71,7 +73,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         return
       }
       if (event.name === "down") {
-        setCursor((c) => Math.min(suggestions().length - 1, c + 1))
+        setCursor((c) => c + 1)
         return
       }
       if (event.name === "backspace") {
@@ -80,18 +82,47 @@ export function CommandPalette(props: CommandPaletteProps) {
         return
       }
       if (isPrintable(event)) {
-        setInput((s) => s + toChar(event))
+        const ch = toChar(event)
+        // The ':' that opens the palette can land in the input depending on
+        // dispatch ordering — commands never start with ':', so drop it.
+        if (ch === ":" && input() === "") return
+        setInput((s) => (s + ch).slice(0, 200))
         setCursor(0)
       }
     }
 
-    kh.on("keypress", onKeypress)
-    onCleanup(() => kh.off("keypress", onKeypress))
-  })
+    // Coalesced / bracketed-pasted text arrives as a paste event, not keypresses
+    const decoder = new TextDecoder()
+    function onPaste(event: PasteEvent) {
+      if (!mode.is("command")) return
+      event.preventDefault()
+      const text = decoder.decode(event.bytes).replace(/[\r\n]+/g, "")
+      if (text) setInput((s) => (s + text).slice(0, 200))
+      setCursor(0)
+    }
 
-  const visibleSuggestions = createMemo(() =>
-    input().length > 0 ? suggestions().slice(0, 8) : [],
-  )
+    // Intentionally never uninstalled — this is the app-wide singleton.
+    kh.on("keypress", onKeypress)
+    kh.on("paste", onPaste)
+  }
+
+  function currentSuggestions() {
+    const q = input().trim().replace(/^:+/, "")
+    return q ? filterCommands(q) : []
+  }
+
+  function execute() {
+    const sugs = currentSuggestions()
+    const sel = Math.min(cursor(), Math.max(0, sugs.length - 1))
+    const line = sugs.length > 0 ? sugs[sel]!.name : input().trim().replace(/^:+/, "")
+    mode.enterNormal()
+    resetPalette()
+    if (line) void executeCommandLine(line)
+  }
+
+  const query = () => input().trim().replace(/^:+/, "")
+  const suggestions = () => (query() ? filterCommands(query()).slice(0, 8) : [])
+  const selected = () => Math.min(cursor(), Math.max(0, suggestions().length - 1))
 
   return (
     // Full content-area overlay — no background so layout shows through
@@ -116,8 +147,8 @@ export function CommandPalette(props: CommandPaletteProps) {
         </box>
 
         {/* Suggestions */}
-        <Show when={visibleSuggestions().length > 0}>
-          <For each={visibleSuggestions()}>
+        <Show when={suggestions().length > 0}>
+          <For each={suggestions()}>
             {(cmd, i) => (
               <box
                 flexDirection="row"

@@ -6,6 +6,7 @@ import { useAuth } from "../context/auth"
 import { useConnection } from "../context/connection"
 import { useBuffers } from "../context/buffers"
 import { useKeymap } from "../context/keymap"
+import { useMode } from "../context/mode"
 import { useYank } from "../context/yank"
 import { listTables, listSnippets, type Table } from "../auth/api"
 import type { ActiveConnection } from "../connections/types"
@@ -44,6 +45,7 @@ export function Sidebar(props: SidebarProps) {
   const keymap  = useKeymap()
   const yank    = useYank()
   const renderer = useRenderer()
+  const mode = useMode()
 
   const [tables, setTables] = createSignal<Table[]>([])
   const [loading, setLoading] = createSignal(false)
@@ -141,25 +143,27 @@ export function Sidebar(props: SidebarProps) {
     const kh = renderer.keyInput
     function onKey(e: KeyEvent) {
       if (!props.focused || !isSql()) return
-      e.preventDefault()
       const naming = namingInput()
-      if (naming !== null) {
-        if (e.name === "escape") { setNamingInput(null); return }
-        if (e.name === "return" || e.name === "enter") {
-          setNamingInput(null)
-          if (naming.trim()) saveSnippet(naming)
-          return
-        }
-        if (e.name === "backspace" || e.name === "delete") {
-          setNamingInput(s => (s ?? "").slice(0, -1)); return
-        }
-        if (e.sequence && e.sequence.length === 1 && !e.ctrl && !e.meta) {
-          setNamingInput(s => (s ?? "") + e.sequence)
-        }
+      if (naming === null) {
+        // Only react in normal mode — a global mode like the command palette
+        // owns the keyboard otherwise.
+        if (!mode.is("normal")) return
+        e.preventDefault()
+        if ((e.name === "n" || e.name === "w") && !e.ctrl) setNamingInput("")
         return
       }
-      if ((e.name === "n" || e.name === "w") && !e.ctrl) {
-        setNamingInput(""); return
+      e.preventDefault()
+      if (e.name === "escape") { setNamingInput(null); return }
+      if (e.name === "return" || e.name === "enter") {
+        setNamingInput(null)
+        if (naming.trim()) saveSnippet(naming)
+        return
+      }
+      if (e.name === "backspace" || e.name === "delete") {
+        setNamingInput(s => (s ?? "").slice(0, -1)); return
+      }
+      if (e.sequence && e.sequence.length === 1 && !e.ctrl && !e.meta) {
+        setNamingInput(s => (s ?? "") + e.sequence)
       }
     }
     kh.on("keypress", onKey)

@@ -128,6 +128,54 @@ function registerAll() {
   })
 
   registerCommand({
+    name: "agent",
+    alias: ["ai"],
+    description: "Open the AI database assistant.  `agent <question>` asks immediately",
+    execute: (args) => {
+      const q = args.trim()
+      b().open("agent", q ? { prompt: q } : undefined)
+    },
+  })
+
+  registerCommand({
+    name: "agent-new",
+    alias: ["ainew"],
+    description: "Reset the AI assistant conversation",
+    execute: async () => {
+      const { newAgentChat } = await import("../agent/session")
+      newAgentChat()
+      b().open("agent")
+    },
+  })
+
+  registerCommand({
+    name: "agent-model",
+    alias: ["aimodel"],
+    description: "Set the AI model.  `agent-model provider/model` (e.g. opencode/hy3-free)",
+    execute: async (args) => {
+      const model = args.trim()
+      if (!model) {
+        const { openModelPicker } = await import("../agent/model-picker")
+        void openModelPicker()
+        return
+      }
+      const { setAgentModel } = await import("../agent/session")
+      const err = await setAgentModel(model)
+      b().open("agent", err ? { initError: err } : undefined)
+    },
+  })
+
+  registerCommand({
+    name: "agent-login",
+    alias: ["ailogin"],
+    description: "Log in to an AI provider with an API key",
+    execute: async () => {
+      const { openProviderLogin } = await import("../agent/providers")
+      void openProviderLogin()
+    },
+  })
+
+  registerCommand({
     name: "help",
     alias: ["h"],
     description: "Show help",

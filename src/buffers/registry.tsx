@@ -6,6 +6,7 @@ import { HomeBuffer } from "./home"
 import { TablesBuffer } from "./tables"
 import { TableBuffer } from "./table"
 import { SqlBuffer } from "./sql"
+import { AgentBuffer } from "./agent"
 import { LoginBuffer } from "./login"
 import { AccountBuffer } from "./account"
 import { HelpBuffer } from "./help"
@@ -40,6 +41,7 @@ register({ type: "home", component: HomeBuffer, defaultTitle: (d) => d?.["projec
 register({ type: "tables", component: TablesBuffer, defaultTitle: (d) => d?.["projectName"] ? `${d["projectName"]}/tables` : "Tables" })
 register({ type: "table", component: TableBuffer, defaultTitle: (d) => d?.["table"] ? `${d["schema"] ?? "public"}.${d["table"]}` : "Table" })
 register({ type: "sql", component: SqlBuffer, defaultTitle: (d) => d?.["table"] ? `SQL:${d["table"]}` : "SQL" })
+register({ type: "agent", component: AgentBuffer, defaultTitle: () => "AI" })
 register({ type: "login", component: LoginBuffer, defaultTitle: () => "Login" })
 register({ type: "account", component: AccountBuffer, defaultTitle: () => "About" })
 register({ type: "help",  component: HelpBuffer,  defaultTitle: () => "Help" })

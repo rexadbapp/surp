@@ -39,6 +39,12 @@ export interface DatabaseDriver {
   /** Human-readable label for status bars/titles */
   readonly label: string
   query(sqlText: string): Promise<QueryResult>
+  /**
+   * Run a single read-only statement inside a forced READ ONLY transaction
+   * with a statement timeout. Optional — only drivers that can open a real
+   * transaction (direct postgres) implement it.
+   */
+  readOnlyQuery?(sqlText: string, timeoutMs?: number): Promise<QueryResult>
   /** Cheap connectivity probe; throw on failure */
   testConnection(): Promise<void>
   /** Release pools/sockets; must be idempotent */

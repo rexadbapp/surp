@@ -39,6 +39,14 @@ export function createPostgresDriver(spec: PostgresDriverSpec): DatabaseDriver {
       return { rows: normalizeRows(res) }
     },
 
+    async readOnlyQuery(sqlText: string, timeoutMs = 15000): Promise<QueryResult> {
+      const rows = await sql.begin("read only", async (tx) => {
+        await tx.unsafe(`SET LOCAL statement_timeout = ${Math.max(1000, timeoutMs)}`)
+        return await tx.unsafe(sqlText)
+      })
+      return { rows: normalizeRows(rows as unknown) }
+    },
+
     async testConnection(): Promise<void> {
       await sql`select 1`
     },

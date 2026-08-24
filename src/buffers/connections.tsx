@@ -197,6 +197,10 @@ export function ConnectionsBuffer(props: BufferProps) {
     function onKey(e: KeyEvent) {
       if (!props.focused) return
 
+      // While a global mode is active (command palette etc.) it owns the
+      // keyboard — list shortcuts like 'n'/'u'/'x' must not steal keystrokes.
+      if (uiMode() === "list" && !mode.is("normal")) return
+
       // Enter can arrive as "return", "enter", or "linefeed" (\n) depending on
       // terminal/tty CR/LF translation — accept all of them.
       const isEnter = e.name === "return" || e.name === "enter" || e.name === "linefeed" || e.sequence === "\r" || e.sequence === "\n"

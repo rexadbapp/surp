@@ -1,7 +1,7 @@
 import { createRoot, createSignal } from "solid-js"
 import type { Accessor, Setter } from "solid-js"
 
-export type PickerType = "theme" | "cursor" | null
+export type PickerType = "theme" | "cursor" | "provider-login" | "model-picker" | null
 
 const _state = createRoot(() => {
   const [active, setActive] = createSignal<PickerType>(null)

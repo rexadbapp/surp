@@ -1,4 +1,4 @@
-import { useTerminalDimensions } from "@opentui/solid"
+import { useTerminalDimensions, useRenderer } from "@opentui/solid"
 import { createMemo, onMount, Show } from "solid-js"
 import { AuthProvider, useAuth } from "./context/auth"
 import { ConnectionProvider, useConnection } from "./context/connection"
@@ -10,6 +10,10 @@ import { StatusBar } from "./ui/statusbar"
 import { CommandPalette } from "./command/palette"
 import { ThemePicker } from "./command/theme-picker"
 import { CursorPicker } from "./command/cursor-picker"
+import { ProviderLogin } from "./command/provider-login"
+import { ModelPicker } from "./command/model-picker"
+import { installProviderLoginHandler } from "./agent/providers"
+import { installModelPickerHandler } from "./agent/model-picker"
 import { TooltipLayer } from "./ui/tooltip"
 import { Layout } from "./panes/layout"
 import { initCommands } from "./command/commands"
@@ -23,10 +27,15 @@ interface AppProps {
 
 function AppInner(props: AppProps) {
   const dimensions = useTerminalDimensions()
+  const renderer = useRenderer()
   const auth = useAuth()
   const connCtx = useConnection()
   const buffers = useBuffers()
   const mode = useMode()
+
+  // Register before buffers mount so the modal outranks their key handlers.
+  installProviderLoginHandler(renderer.keyInput)
+  installModelPickerHandler(renderer.keyInput)
 
   const width = createMemo(() => dimensions().width)
   const height = createMemo(() => dimensions().height)
@@ -61,6 +70,16 @@ function AppInner(props: AppProps) {
         <Show when={activePicker() === "cursor"}>
           <box position="absolute" top={0} left={0} width={width()} height={contentHeight()}>
             <CursorPicker width={width()} height={contentHeight()} />
+          </box>
+        </Show>
+        <Show when={activePicker() === "provider-login"}>
+          <box position="absolute" top={0} left={0} width={width()} height={contentHeight()}>
+            <ProviderLogin width={width()} height={contentHeight()} />
+          </box>
+        </Show>
+        <Show when={activePicker() === "model-picker"}>
+          <box position="absolute" top={0} left={0} width={width()} height={contentHeight()}>
+            <ModelPicker width={width()} height={contentHeight()} />
           </box>
         </Show>
         <TooltipLayer width={width()} height={contentHeight()} />
