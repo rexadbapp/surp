@@ -1,6 +1,6 @@
 {
   "name": "surp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "nvim for supabase",
   "type": "module",
